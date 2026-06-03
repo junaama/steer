@@ -55,6 +55,14 @@ describe('SteerClient', () => {
     })
   })
 
+  it('sendMessage posts the follow-up to /sessions/:id/message', async () => {
+    const f = makeFetch(() => res(200, { txid: '7' }))
+    const out = await mk(f).sendMessage('tok', 'sess a', 'add tests')
+    expect(out.txid).toBe('7')
+    expect(f.mock.calls[0]![0]).toBe('http://s/sessions/sess%20a/message')
+    expect(JSON.parse(f.mock.calls[0]![1]!.body as string)).toEqual({ text: 'add tests' })
+  })
+
   it('logout resolves to void on an empty 204', async () => {
     const f = makeFetch(() => new Response(null, { status: 204 }))
     await expect(mk(f).logout('tok')).resolves.toBeUndefined()

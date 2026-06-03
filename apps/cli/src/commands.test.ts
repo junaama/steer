@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { login, run, watch, whoami, logout, makeSessionId, makeTitle, type Ctx, type IO } from './commands.js'
+import { login, run, watch, whoami, logout, ls, resolveSession, makeSessionId, makeTitle, type Ctx, type IO } from './commands.js'
 import { SteerError, type SteerClient, type SessionInput } from './api.js'
+import type { SessionState } from './events.js'
 import { saveCredentials, loadCredentials } from './config.js'
 
 let home: string
@@ -143,6 +144,109 @@ describe('run', () => {
     expect(client.createSession.mock.calls[0]![1].model).toBe('sonnet')
     expect(out.join('\n')).toContain('hi')
     expect(out.join('\n')).toContain('[completed]')
+  })
+})
+
+describe('resolveSession', () => {
+  const states: SessionState[] = [
+    { id: 'sess-aaa', title: 'Fix checkout', lastStatus: 'completed' },
+    { id: 'sess-bbb', title: 'Add auth', lastStatus: 'running' },
+    { id: 'sess-ccc', title: 'Add auth', lastStatus: 'error' }, // duplicate title
+  ]
+
+  it('matches an exact id', () => {
+    expect(resolveSession(states, 'sess-aaa')).toEqual({ id: 'sess-aaa' })
+  })
+  it('matches a unique exact title', () => {
+    expect(resolveSession(states, 'Fix checkout')).toEqual({ id: 'sess-aaa' })
+  })
+  it('rejects an ambiguous exact title', () => {
+    expect(resolveSession(states, 'Add auth')).toMatchObject({ error: expect.stringContaining('Multiple') })
+  })
+  it('matches a unique partial (case-insensitive)', () => {
+    expect(resolveSession(states, 'checkout')).toEqual({ id: 'sess-aaa' })
+  })
+  it('rejects an ambiguous partial', () => {
+    expect(resolveSession(states, 'add')).toMatchObject({ error: expect.stringContaining('matches 2') })
+  })
+  it('reports no match', () => {
+    expect(resolveSession(states, 'nope')).toMatchObject({ error: expect.stringContaining('No session') })
+  })
+})
+
+describe('run --session (follow-up)', () => {
+  const sessionShape = [{ value: { id: 'sess-aaa', title: 'Fix checkout', last_status: 'completed' }, headers: { operation: 'insert' } }]
+
+  it('resolves a session and sends a follow-up message', async () => {
+    await saveCredentials(creds, home)
+    const client = {
+      shape: vi.fn(async () => sessionShape),
+      sendMessage: vi.fn(async () => ({ txid: '9' })),
+    }
+    const { ctx, out } = harness(client)
+    expect(await run(ctx, { prompt: 'now add tests', session: 'checkout' })).toBe(0)
+    expect(client.sendMessage).toHaveBeenCalledWith('tok', 'sess-aaa', 'now add tests')
+    expect(out.join('\n')).toContain('Sent to session sess-aaa')
+  })
+
+  it('errors when the session reference does not resolve', async () => {
+    await saveCredentials(creds, home)
+    const client = { shape: vi.fn(async () => sessionShape), sendMessage: vi.fn() }
+    const { ctx, err } = harness(client)
+    expect(await run(ctx, { prompt: 'hi', session: 'ghost' })).toBe(1)
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    expect(err.join('\n')).toContain('No session matches')
+  })
+
+  it('surfaces a send failure', async () => {
+    await saveCredentials(creds, home)
+    const client = {
+      shape: vi.fn(async () => sessionShape),
+      sendMessage: vi.fn(async () => { throw new SteerError(403, 'forbidden') }),
+    }
+    const { ctx, err } = harness(client)
+    expect(await run(ctx, { prompt: 'hi', session: 'sess-aaa' })).toBe(1)
+    expect(err.join('\n')).toContain('forbidden')
+  })
+
+  it('streams when --watch is set', async () => {
+    await saveCredentials(creds, home)
+    const client = {
+      shape: vi.fn(async (_t: string, coll: 'sessions' | 'events') =>
+        coll === 'events'
+          ? [{ value: { seq: '0', type: 'message', payload: '{"text":"ok"}' }, headers: { operation: 'insert' } }]
+          : [{ value: { id: 'sess-aaa', title: 'Fix checkout', last_status: 'completed' }, headers: { operation: 'insert' } }],
+      ),
+      sendMessage: vi.fn(async () => ({ txid: '9' })),
+    }
+    const { ctx, out } = harness(client, { sleep: async () => {} })
+    expect(await run(ctx, { prompt: 'go', session: 'sess-aaa', watch: true })).toBe(0)
+    expect(out.join('\n')).toContain('[completed]')
+  })
+})
+
+describe('ls', () => {
+  it('errors when not logged in', async () => {
+    const { ctx, err } = harness({})
+    expect(await ls(ctx)).toBe(1)
+    expect(err.join('\n')).toContain('steer login')
+  })
+  it('reports when there are no sessions', async () => {
+    await saveCredentials(creds, home)
+    const { ctx, out } = harness({ shape: vi.fn(async () => []) })
+    expect(await ls(ctx)).toBe(0)
+    expect(out.join('\n')).toContain('No sessions yet')
+  })
+  it('lists sessions with id, status, and title', async () => {
+    await saveCredentials(creds, home)
+    const client = {
+      shape: vi.fn(async () => [{ value: { id: 'sess-aaa', title: 'Fix checkout', last_status: 'running' }, headers: { operation: 'insert' } }]),
+    }
+    const { ctx, out } = harness(client)
+    expect(await ls(ctx)).toBe(0)
+    expect(out.join('\n')).toContain('sess-aaa')
+    expect(out.join('\n')).toContain('running')
+    expect(out.join('\n')).toContain('Fix checkout')
   })
 })
 

@@ -6,6 +6,12 @@ import { ToolCard } from './ToolCard.js'
 
 const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval']
 
+const ROLE_LABEL: Record<'message' | 'thinking' | 'user', string> = {
+  message: 'assistant',
+  thinking: 'thinking',
+  user: 'you',
+}
+
 export interface SessionDetailProps {
   title: string
   model: string
@@ -55,7 +61,7 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
                 </div>
               ) : (
                 <div className={`ev ev-${item.kind}`} key={item.key}>
-                  <div className="ev-role">{item.kind === 'thinking' ? 'thinking' : 'assistant'}</div>
+                  <div className="ev-role">{ROLE_LABEL[item.kind]}</div>
                   <div className="ev-body">{item.text}</div>
                 </div>
               ),

@@ -1,14 +1,15 @@
-import { login, run, watch, whoami, logout, type Ctx } from './commands.js'
+import { login, run, watch, whoami, logout, ls, type Ctx } from './commands.js'
 
 export const VERSION = '0.0.0'
 
-export type Command = 'login' | 'signup' | 'logout' | 'whoami' | 'run' | 'watch' | 'help' | 'version'
+export type Command = 'login' | 'signup' | 'logout' | 'whoami' | 'run' | 'watch' | 'ls' | 'help' | 'version'
 
 export interface Flags {
   serverUrl?: string
   model?: string
   email?: string
   password?: string
+  session?: string
   watch?: boolean
   signup?: boolean
   help?: boolean
@@ -22,14 +23,15 @@ export interface ParsedArgs {
   flags: Flags
 }
 
-const VALUE_FLAGS = new Set(['--server', '--model', '--email', '--password'])
-const COMMANDS = new Set(['login', 'signup', 'logout', 'whoami', 'run', 'watch', 'help', 'version'])
+const VALUE_FLAGS = new Set(['--server', '--model', '--email', '--password', '--session'])
+const COMMANDS = new Set(['login', 'signup', 'logout', 'whoami', 'run', 'watch', 'ls', 'help', 'version'])
 
 function setValueFlag(flags: Flags, key: string, val: string): void {
   if (key === '--server') flags.serverUrl = val
   else if (key === '--model') flags.model = val
   else if (key === '--email') flags.email = val
   else if (key === '--password') flags.password = val
+  else if (key === '--session') flags.session = val
 }
 
 /**
@@ -85,6 +87,8 @@ export function usage(): string {
     '  steer signup                Create an account',
     '  steer "<prompt>"            Start a session from a prompt',
     '  steer "<prompt>" --watch    Start and stream the run in your terminal',
+    '  steer "<prompt>" --session <id|name>   Send a follow-up to an existing session',
+    '  steer ls                    List your sessions',
     '  steer watch <session-id>    Stream an existing session',
     '  steer whoami                Show the logged-in account',
     '  steer logout                Log out',
@@ -92,6 +96,7 @@ export function usage(): string {
     'Flags:',
     '  --server <url>   API server (default $STEER_SERVER_URL or http://localhost:8080)',
     '  --model <tier>   sonnet | opus | haiku (default sonnet)',
+    '  --session <ref>  Target an existing session by id or name (follow-up turn)',
     '  --email <e>      Non-interactive email (or $STEER_EMAIL)',
     '  --password <p>   Non-interactive password (or $STEER_PASSWORD)',
     '  --watch          Stream events after starting',
@@ -115,7 +120,14 @@ export async function dispatch(parsed: ParsedArgs, ctx: Ctx, env: NodeJS.Process
         signup: parsed.command === 'signup' || parsed.flags.signup,
       })
     case 'run':
-      return run(ctx, { prompt: parsed.prompt, model: parsed.flags.model, watch: parsed.flags.watch })
+      return run(ctx, {
+        prompt: parsed.prompt,
+        model: parsed.flags.model,
+        watch: parsed.flags.watch,
+        session: parsed.flags.session,
+      })
+    case 'ls':
+      return ls(ctx)
     case 'watch':
       if (!parsed.sessionId) {
         ctx.io.error('Usage: steer watch <session-id>')

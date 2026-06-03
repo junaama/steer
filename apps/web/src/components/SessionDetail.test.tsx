@@ -61,6 +61,23 @@ describe('SessionDetail', () => {
     expect(screen.getByText('Intervene')).toBeInTheDocument()
   })
 
+  it('renders a follow-up user_message with a "you" role label', () => {
+    render(
+      <SessionDetail
+        title="t"
+        model="sonnet"
+        status="completed"
+        items={[{ kind: 'user', key: 'u1', text: 'now add tests' }]}
+        onInterrupt={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('now add tests')).toBeInTheDocument()
+    expect(screen.getByText('you')).toBeInTheDocument()
+    // the operator styling hinges on this class
+    expect(screen.getByText('now add tests').closest('.ev-user')).toBeInTheDocument()
+  })
+
   it('renders a thinking item with its role label', () => {
     render(
       <SessionDetail

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { SteerClient, SteerError } from './api.js'
 import { saveCredentials, loadCredentials, clearCredentials } from './config.js'
-import { decodeEvents, decodeSessions, formatEvent, isTerminal } from './events.js'
+import { decodeEvents, decodeSessions, formatEvent, isTerminal, type SessionState } from './events.js'
 
 /** Terminal I/O, injected so commands are testable without a real TTY. */
 export interface IO {
@@ -60,6 +60,22 @@ export interface RunOpts {
   prompt: string
   model?: string
   watch?: boolean
+  /** Target an existing session (by id or name) instead of creating a new one. */
+  session?: string
+}
+
+/** Resolve a `--session` argument to exactly one session id, or an error message. */
+export function resolveSession(states: SessionState[], arg: string): { id: string } | { error: string } {
+  const byId = states.find((s) => s.id === arg)
+  if (byId) return { id: byId.id }
+  const exact = states.filter((s) => s.title === arg)
+  if (exact.length === 1) return { id: exact[0]!.id }
+  if (exact.length > 1) return { error: `Multiple sessions are named "${arg}" — use the id (steer ls).` }
+  const q = arg.toLowerCase()
+  const partial = states.filter((s) => s.title.toLowerCase().includes(q))
+  if (partial.length === 1) return { id: partial[0]!.id }
+  if (partial.length > 1) return { error: `"${arg}" matches ${partial.length} sessions — be more specific or use the id.` }
+  return { error: `No session matches "${arg}". Try: steer ls` }
 }
 
 export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
@@ -73,6 +89,29 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
     return 1
   }
   const client = ctx.makeClient(creds.serverUrl)
+
+  // Follow-up: send the prompt to an existing session instead of creating one.
+  if (opts.session) {
+    const states = decodeSessions(await client.shape(creds.token, 'sessions'))
+    const resolved = resolveSession(states, opts.session)
+    if ('error' in resolved) {
+      ctx.io.error(resolved.error)
+      return 1
+    }
+    try {
+      await client.sendMessage(creds.token, resolved.id, opts.prompt)
+    } catch (err) {
+      ctx.io.error(`Could not send message: ${err instanceof SteerError ? err.message : String(err)}`)
+      return 1
+    }
+    ctx.io.print(`Sent to session ${resolved.id} — the daemon will resume it.`)
+    if (!opts.watch) {
+      ctx.io.print(`Watch it: steer watch ${resolved.id}`)
+      return 0
+    }
+    return watch(ctx, { sessionId: resolved.id })
+  }
+
   const id = makeSessionId()
   try {
     await client.createSession(creds.token, {
@@ -94,6 +133,21 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
   return watch(ctx, { sessionId: id })
 }
 
+export async function ls(ctx: Ctx): Promise<number> {
+  const creds = await loadCredentials(ctx.home)
+  if (!creds) {
+    ctx.io.error('Not logged in. Run: steer login')
+    return 1
+  }
+  const states = decodeSessions(await ctx.makeClient(creds.serverUrl).shape(creds.token, 'sessions'))
+  if (states.length === 0) {
+    ctx.io.print('No sessions yet. Start one: steer "<prompt>"')
+    return 0
+  }
+  for (const s of states) ctx.io.print(`${s.id}  [${s.lastStatus}]  ${s.title}`)
+  return 0
+}
+
 export interface WatchOpts {
   sessionId: string
   intervalMs?: number
@@ -112,14 +166,18 @@ export async function watch(ctx: Ctx, opts: WatchOpts): Promise<number> {
   const deadline = now() + (opts.maxMs ?? 300_000)
   let lastSeq = -1
   for (;;) {
-    const events = decodeEvents(await client.shape(creds.token, 'events', opts.sessionId))
-    for (const e of events) {
+    // The two shapes are independent reads — fetch them concurrently each tick.
+    const [rawEvents, rawSessions] = await Promise.all([
+      client.shape(creds.token, 'events', opts.sessionId),
+      client.shape(creds.token, 'sessions'),
+    ])
+    for (const e of decodeEvents(rawEvents)) {
       if (e.seq > lastSeq) {
         ctx.io.print(formatEvent(e))
         lastSeq = e.seq
       }
     }
-    const me = decodeSessions(await client.shape(creds.token, 'sessions')).find((s) => s.id === opts.sessionId)
+    const me = decodeSessions(rawSessions).find((s) => s.id === opts.sessionId)
     if (me && isTerminal(me.lastStatus)) {
       ctx.io.print(`\n[${me.lastStatus}]`)
       return 0

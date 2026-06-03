@@ -131,6 +131,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
   const views: SessionView[] = rows.map((r) => ({
     id: r.id,
     title: r.title,
+    task: r.task,
     lastStatus: r.lastStatus,
     model: r.model,
     updatedAt: new Date(r.updatedAt).getTime(),
@@ -215,7 +216,10 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
   const live = useLiveQuery((q) => q.from({ e: events })) as unknown as { data?: EventRow[] }
   // Decode Electric's wire format: snake_case keys, stringified seq, jsonb-as-string payload.
   const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeEventRow)
-  const items = buildTrace(rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload })))
+  const items = buildTrace(
+    rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload })),
+    session.task,
+  )
 
   const handleAction = (tool: ToolItem, action: InterceptAction): void => {
     const id = tool.toolCallId

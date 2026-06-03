@@ -69,4 +69,15 @@ describe('decodeEventRow', () => {
   it('returns an empty object for malformed payload JSON', () => {
     expect(decodeEventRow({ session_id: 's', seq: '0', type: 'message', payload: 'not json' }).payload).toEqual({})
   })
+
+  it('returns an empty object when payload is a non-object scalar or missing', () => {
+    expect(decodeEventRow({ session_id: 's', seq: '0', type: 'message', payload: '5' }).payload).toEqual({})
+    expect(decodeEventRow({ session_id: 's', seq: '0', type: 'message' }).payload).toEqual({})
+  })
+
+  it('carries a follow-up user_message through the Electric wire format', () => {
+    const row = decodeEventRow({ session_id: 's', seq: '2', type: 'user_message', payload: '{"text":"now add tests"}' })
+    expect(row.type).toBe('user_message')
+    expect(row.payload).toEqual({ text: 'now add tests' })
+  })
 })

@@ -564,6 +564,17 @@ textarea {
   border-left: 2px solid var(--border);
   padding-left: 12px;
 }
+/* Operator follow-up turn — visually distinct from the agent's messages. */
+.ev-user .ev-role {
+  color: var(--accent);
+}
+.ev-user .ev-body {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.62;
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+}
 .live-tail {
   display: flex;
   align-items: center;

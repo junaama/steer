@@ -19,6 +19,7 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number]
 
 export const EVENT_TYPES = [
   'message',
+  'user_message',
   'thinking',
   'tool_proposed',
   'tool_started',

@@ -26,11 +26,14 @@ export const eventInsertSchema = createInsertSchema(events)
 export const controlInsertSchema = createInsertSchema(controls)
 
 const toolRef = z.object({ toolCallId: z.string().min(1), name: z.string().min(1) })
+const textPayload = z.object({ text: z.string() })
 
 /** Event payload schema keyed by `event.type`. */
 export const eventPayloadSchemas = {
-  message: z.object({ text: z.string() }),
-  thinking: z.object({ text: z.string() }),
+  message: textPayload,
+  // A follow-up instruction the user sends to an existing session (multi-turn).
+  user_message: textPayload,
+  thinking: textPayload,
   tool_proposed: z.object({
     toolCallId: z.string().min(1),
     name: z.string().min(1),

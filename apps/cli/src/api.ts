@@ -76,6 +76,15 @@ export class SteerClient {
     )
   }
 
+  /** Append a follow-up turn to an existing session and re-queue it. */
+  sendMessage(token: string, sessionId: string, text: string): Promise<{ txid: string }> {
+    return this.request<{ txid: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/message`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+      token,
+    )
+  }
+
   /** Raw Electric shape array for a collection (decoded by events.ts). */
   shape(token: string, collection: 'sessions' | 'events', sessionId?: string): Promise<unknown[]> {
     const q = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''

@@ -3,6 +3,7 @@ import type { Db } from './db.js'
 import { registerCors } from './cors.js'
 import { registerAuth, type AuthVerifier } from './auth.js'
 import { registerAuthRoutes } from './auth-routes.js'
+import { registerMessages } from './messages.js'
 import { registerWrites } from './writes.js'
 import { registerProxy, type FetchImpl } from './proxy.js'
 import './types.js'
@@ -30,9 +31,13 @@ export function buildServer(opts: ServerOptions): FastifyInstance {
 
   registerAuth(app, opts.verifier, {
     protect: (url) =>
-      url.startsWith('/writes') || url.startsWith('/sync') || url.startsWith('/auth/me'),
+      url.startsWith('/writes') ||
+      url.startsWith('/sync') ||
+      url.startsWith('/auth/me') ||
+      url.startsWith('/sessions/'),
   })
   registerAuthRoutes(app, opts.db)
+  registerMessages(app, opts.db)
   registerWrites(app, opts.db)
   registerProxy(app, { db: opts.db, electricUrl: opts.electricUrl, fetchImpl: opts.fetchImpl })
 

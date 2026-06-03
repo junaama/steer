@@ -5,6 +5,8 @@ export interface ContextMessage {
   content: string
 }
 
+const textOf = (payload: unknown): string => String((payload as { text?: string }).text ?? '')
+
 /**
  * Project the event log into the LLM context. After an override, the executed
  * (substituted) tool appears as *the* call, and a system note records the
@@ -17,7 +19,10 @@ export function buildContext(task: string | null, events: readonly StoredEvent[]
 
   for (const e of events) {
     if (e.type === 'message') {
-      messages.push({ role: 'assistant', content: String((e.payload as { text?: string }).text ?? '') })
+      messages.push({ role: 'assistant', content: textOf(e.payload) })
+    } else if (e.type === 'user_message') {
+      // A follow-up turn from the operator — continues the conversation.
+      messages.push({ role: 'user', content: textOf(e.payload) })
     } else if (e.type === 'tool_result') {
       const p = e.payload as { name: string; result: string }
       messages.push({ role: 'user', content: `[tool ${p.name} result]\n${p.result}` })

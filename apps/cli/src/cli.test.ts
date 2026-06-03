@@ -52,6 +52,15 @@ describe('parseArgs', () => {
     expect(parseArgs(['login', '--signup']).flags.signup).toBe(true)
   })
 
+  it('parses --session for follow-ups and the ls command', () => {
+    expect(parseArgs(['add tests', '--session', 'sess-1'])).toMatchObject({
+      command: 'run',
+      prompt: 'add tests',
+      flags: { session: 'sess-1' },
+    })
+    expect(parseArgs(['ls']).command).toBe('ls')
+  })
+
   it('ignores a trailing value-flag with no value and unknown flags', () => {
     expect(parseArgs(['login', '--server']).flags.serverUrl).toBeUndefined()
     expect(parseArgs(['--unknown', 'prompt'])).toMatchObject({ command: 'run', prompt: 'prompt' })
@@ -134,5 +143,15 @@ describe('dispatch', () => {
     const { ctx } = harness({})
     expect(await dispatch(parseArgs(['whoami']), ctx, {})).toBe(1)
     expect(await dispatch(parseArgs(['logout']), ctx, {})).toBe(0)
+  })
+
+  it('routes ls and a --session follow-up', async () => {
+    const lsClient = { shape: vi.fn(async () => []) }
+    const a = harness(lsClient)
+    expect(await dispatch(parseArgs(['ls']), a.ctx, {})).toBe(1) // not logged in → 1
+    const b = harness({})
+    // --session run also requires login here, so it returns 1 — but it routes to run.
+    expect(await dispatch(parseArgs(['hello', '--session', 'sess-1']), b.ctx, {})).toBe(1)
+    expect(b.err.join('\n')).toContain('steer login')
   })
 })

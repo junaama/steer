@@ -41,6 +41,8 @@ The daemon picks up any session in `starting` status. The `steer` CLI is the no-
 ./steer login                 # prompts for email + password (new account: ./steer signup)
 ./steer "fix the flaky checkout test"          # creates a session; the daemon runs it within ~1.5s
 ./steer "summarize the repo" --watch           # …and stream thinking/tool calls/messages in your terminal
+./steer "now add tests" --session <id|name>    # follow-up turn to an existing session (resumes it)
+./steer ls                    # list your sessions (id, status, title)
 ./steer watch <session-id>    # tail an existing run
 ```
 

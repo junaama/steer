@@ -3,6 +3,7 @@ import type { SessionStatus } from '@steer/schema'
 export interface SessionView {
   id: string
   title: string
+  task?: string | null
   lastStatus: SessionStatus
   model: string
   updatedAt: number

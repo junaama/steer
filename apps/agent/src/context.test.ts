@@ -18,6 +18,18 @@ describe('buildContext', () => {
     expect(buildContext(null, [ev(0, 'message', {})])).toEqual([{ role: 'assistant', content: '' }])
   })
 
+  it('projects a follow-up user_message as a user turn (multi-turn)', () => {
+    const msgs = buildContext('initial task', [
+      ev(0, 'message', { text: 'done' }),
+      ev(1, 'user_message', { text: 'now add tests' }),
+    ])
+    expect(msgs).toEqual([
+      { role: 'user', content: 'initial task' },
+      { role: 'assistant', content: 'done' },
+      { role: 'user', content: 'now add tests' },
+    ])
+  })
+
   it('maps assistant messages and tool results', () => {
     const msgs = buildContext(null, [
       ev(0, 'message', { text: 'hi' }),

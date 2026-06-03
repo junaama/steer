@@ -1,7 +1,7 @@
 import type { EventType, ToolStatus, ToolKind } from '@steer/schema'
 
 export interface MessageItem {
-  kind: 'message' | 'thinking'
+  kind: 'message' | 'thinking' | 'user'
   key: string
   text: string
 }
@@ -32,19 +32,24 @@ export interface RawEvent {
 /**
  * Project the append-only event log into renderable trace items. Tool events
  * sharing a toolCallId fold into one card whose status is the latest terminal.
- * Pure and immutable — the UI is a projection of synced state.
+ * The session's initial `task` (a session field, not an event) is prepended as
+ * the opening "you" turn so the thread reads as a conversation rather than a
+ * reply with no question. Pure and immutable — the UI is a projection of state.
  */
-export function buildTrace(events: readonly RawEvent[]): TraceItem[] {
+export function buildTrace(events: readonly RawEvent[], task?: string | null): TraceItem[] {
   const sorted = [...events].sort((a, b) => a.seq - b.seq)
   const order: string[] = []
   const messages = new Map<string, MessageItem>()
   const tools = new Map<string, ToolItem>()
 
   for (const e of sorted) {
-    if (e.type === 'message' || e.type === 'thinking') {
+    if (e.type === 'message' || e.type === 'thinking' || e.type === 'user_message') {
+      // user_message is the operator's follow-up turn — render it as a user bubble.
+      // Annotated so adding a new message-like EventType here fails at the source.
+      const kind: MessageItem['kind'] = e.type === 'user_message' ? 'user' : e.type
       const key = `${e.type[0]}-${e.seq}`
       order.push(key)
-      messages.set(key, { kind: e.type, key, text: String(e.payload.text ?? '') })
+      messages.set(key, { kind, key, text: String(e.payload.text ?? '') })
       continue
     }
 
@@ -89,5 +94,9 @@ export function buildTrace(events: readonly RawEvent[]): TraceItem[] {
     }
   }
 
-  return order.map((key) => messages.get(key) ?? tools.get(key)).filter((x): x is TraceItem => x !== undefined)
+  const items = order.map((key) => messages.get(key) ?? tools.get(key)).filter((x): x is TraceItem => x !== undefined)
+  if (task && task.trim()) {
+    return [{ kind: 'user', key: 'task', text: task }, ...items]
+  }
+  return items
 }

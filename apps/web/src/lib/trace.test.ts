@@ -13,6 +13,45 @@ describe('buildTrace', () => {
     expect((items[0] as { text: string }).text).toBe('hi')
   })
 
+  it('projects a follow-up user_message as a user item, interleaved in order', () => {
+    const items = buildTrace([
+      ev(0, 'message', { text: 'done' }),
+      ev(1, 'user_message', { text: 'now add tests' }),
+      ev(2, 'message', { text: 'on it' }),
+    ])
+    expect(items.map((i) => i.kind)).toEqual(['message', 'user', 'message'])
+    expect((items[1] as { text: string }).text).toBe('now add tests')
+  })
+
+  it('prepends the initial task as the opening "you" turn', () => {
+    const items = buildTrace([ev(0, 'message', { text: 'on it' })], 'fix the bug')
+    expect(items.map((i) => i.kind)).toEqual(['user', 'message'])
+    expect((items[0] as { text: string }).text).toBe('fix the bug')
+    expect(items[0]!.key).toBe('task')
+  })
+
+  it('does not prepend a blank or absent task', () => {
+    expect(buildTrace([ev(0, 'message', { text: 'hi' })], '   ').map((i) => i.kind)).toEqual(['message'])
+    expect(buildTrace([ev(0, 'message', { text: 'hi' })], null).map((i) => i.kind)).toEqual(['message'])
+  })
+
+  it('interleaves a user_message among tool cards in seq order', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),
+      ev(1, 'tool_result', { toolCallId: 'tc1', name: 'grep', result: 'm' }),
+      ev(2, 'user_message', { text: 'rerun it' }),
+      ev(3, 'tool_proposed', { toolCallId: 'tc2', name: 'read', kind: 'read-only', args: {} }),
+    ])
+    expect(items.map((i) => i.kind)).toEqual(['tool', 'user', 'tool'])
+    expect((items[1] as { text: string }).text).toBe('rerun it')
+  })
+
+  it('defaults a sparse user_message to empty text', () => {
+    const items = buildTrace([ev(0, 'user_message', {})])
+    expect(items[0]!.kind).toBe('user')
+    expect((items[0] as { text: string }).text).toBe('')
+  })
+
   it('folds a read-only tool lifecycle into one running→done card', () => {
     const items = buildTrace([
       ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: { pattern: 'x' } }),
