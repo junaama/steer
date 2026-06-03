@@ -1,47 +1,69 @@
 # Steer
 
-A **sync-based headless coding agent** with a reactive web UI — and the ability to **steer it live**. Watch the agent work in real time, and reach into a running tool call to **swap, edit, or approve** it: cancel a wasteful `grep` mid-flight and substitute a `read`, or gate a `write_file` behind approval — without restarting the run or re-planning.
+A sync-based headless coding agent with a reactive web UI, and the ability to steer it live. Watch the agent work in real time, and reach into a running tool call to swap, edit, or approve it: cancel a wasteful `grep` mid-flight and substitute a `read`, or gate a `write_file` behind approval — without restarting the run or re-planning.
 
-Built on the principle that **Postgres is the single source of truth** and the UI and agent are pure projections of synced state through **Electric SQL + TanStack DB** — never a websocket, never local state pretending to be live.
+Built on Postgres as the single source of truth, with the UI and agent as pure projections of synced state through Electric SQL + TanStack DB.
 
 ---
 
 ## Quick start
 
-**Prerequisites:** Docker, an **OpenAI or Anthropic API key** (for the agent), and a WorkOS AuthKit project (for login).
+Prerequisites: Docker and an OpenAI or Anthropic API key (for the agent). Auth is self-hosted.
 
 ```bash
 git clone <this-repo> steer && cd steer
-cp .env.example .env        # fill in WORKOS_* and ANTHROPIC_API_KEY
+cp .env.example .env        # fill in one LLM key: ANTHROPIC_API_KEY or OPENAI_API_KEY
 docker compose up --build   # builds + starts the whole stack
 ```
 
-Then open **http://localhost:5173**, sign in, and create a session.
+Then open http://localhost:5173, sign up with any email + password (min 8 chars), and create a session.
 
-> **No extra build steps.** `docker compose up` brings up Postgres, Electric, the
-> server/UI, and the (portless) agent. The first boot builds images and runs DB
-> migrations automatically before the app starts.
+No extra build steps. `docker compose up` brings up Postgres, Electric, the server/UI, and the (portless) agent. The first boot builds images and runs DB migrations automatically.
 
-**Optional — seed a demo session:** `docker compose exec server pnpm seed`
-(set `SEED_USER_ID` to your WorkOS user id to see it after login).
+Optional — seed a demo account + sessions: `docker compose exec server pnpm seed` seeds a login-able account (`demo@steer.dev` / `steerdemo123`) with example sessions. Override with `SEED_USER_EMAIL` / `SEED_USER_PASSWORD`.
 
 ### Configuration (`.env`)
 
 | Var | Purpose |
 |---|---|
-| `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | server-side WorkOS auth |
-| `VITE_WORKOS_CLIENT_ID`, `VITE_WORKOS_REDIRECT_URI` | browser AuthKit (set the redirect to `http://localhost:5173/callback` and register it in the WorkOS dashboard) |
 | `OPENAI_API_KEY` *or* `ANTHROPIC_API_KEY` | the coding agent's model. Provider is auto-detected (OpenAI preferred when both set) or pinned with `LLM_PROVIDER=openai\|anthropic`; override the model with `OPENAI_MODEL` / `ANTHROPIC_MODEL` |
 | `DATABASE_URL` | defaults to the local Postgres container; point it at a [Neon](https://neon.tech) connection string for a hosted database |
 
+Auth requires no configuration. Session tokens are self-issued and verified against Postgres. The only key required is an LLM provider key for the agent.
+
 ---
 
-## Verify it's real sync (not polling)
+## Start sessions from the CLI
 
-Open the same session in **two browser windows**. Start a run in one — the agent's
-messages, tool calls, and your interceptions appear **live in both** with no reload.
-Open DevTools → Network: you'll see Electric's long-lived `/v1/shape` stream and
-discrete `POST /writes`, **never a polling loop**.
+The daemon picks up any session in `starting` status. The `steer` CLI is the no-UI way to create one — log in once, then start a session from a prompt:
+
+```bash
+./steer login                 # prompts for email + password (new account: ./steer signup)
+./steer "fix the flaky checkout test"          # creates a session; the daemon runs it within ~1.5s
+./steer "summarize the repo" --watch           # …and stream thinking/tool calls/messages in your terminal
+./steer watch <session-id>    # tail an existing run
+```
+
+`./steer` (from the repo root) needs no build; `pnpm steer …` works too. Token is stored in `~/.steer/credentials.json` (0600). Point at another server with `--server <url>` or `$STEER_SERVER_URL`; pick a model tier with `--model sonnet|opus|haiku`. For a bare `steer` on your PATH: `pnpm --filter @steer/cli build && pnpm --filter @steer/cli link --global`.
+
+### Point the agent at your project
+
+The agent does its coding work in a real directory — like `claude -p "…"` in your cwd. Mount it with `WORKSPACE_DIR`, then the agent's `read_file`/`list_dir`/`grep`/`write_file`/`bash` all act on those files:
+
+```bash
+WORKSPACE_DIR=$(pwd) docker compose --env-file .env.local up   # agent works in your current directory
+# or a specific project:  WORKSPACE_DIR=~/dev/my-app docker compose up
+```
+
+It defaults to `./workspace` (a scratch dir in the repo). The web UI at **http://localhost:5173** is your remote control: watch every session live, and **approve / swap / reject** side-effecting tools (`write_file`, `bash`) — those pause for approval, so an autonomous CLI run uses read-only tools until you steer it from the UI. A run is capped at `STEER_MAX_STEPS` (default 40) so a stuck model can't loop forever.
+
+> The agent needs an LLM key **in its container** to actually run a session. `docker compose up` reads `.env` only — if your key lives in `.env.local`, start the stack with `docker compose --env-file .env.local up` (otherwise sessions get picked up but immediately go to `error`).
+
+---
+
+## Verify it's real sync
+
+Open the same session in two browser windows. Start a run in one — the agent's messages, tool calls, and your interceptions appear live in both with no reload. Open DevTools → Network to see Electric's long-lived `/v1/shape` stream and discrete `POST /writes`.
 
 ---
 
@@ -51,36 +73,24 @@ discrete `POST /writes`, **never a polling loop**.
 Browser (Vite + React + TanStack DB)
   │  reads  ── GET /sync/:collection ──►  Server (Fastify)  ──►  Electric  ──►  Postgres
   │  writes ── POST /writes (returns txid) ─────────────────────────────────────►
-  │  auth   ── WorkOS AuthKit (bearer token; sub scopes every read/write)
+  │  auth   ── self-hosted session token (bearer; sub scopes every read/write)
   ▼
-Agent daemon (PORTLESS, outbound only) ── appends events to ──►  Postgres
+Agent daemon (portless, outbound only) ── appends events to ──►  Postgres
 ```
 
-- **Event log is the truth.** One append-only `events` table; `messages`, tool
-  calls, and session status are projections. Live streaming, multi-window viewing,
-  interrupt-audit, and crash-only resume all fall out of it.
-- **Electric is read-path only.** Writes go through the server's generic `/writes`
-  endpoint, which captures `pg_current_xact_id()` *inside* the mutation transaction
-  and returns it so the optimistic UI reconciles against the exact transaction.
-- **Control-plane-via-data-plane.** Interrupt / approve / reject / override are
-  rows that sync into the portless agent — no second channel, no websocket.
-- **Single typed schema spine.** `packages/schema` (drizzle + drizzle-zod) emits
-  the DDL, row types, payload validation, and the agent's tool schemas.
+- Event log is source of truth. One append-only `events` table; messages, tool calls, and session status are projections. Live streaming, multi-window viewing, interrupt-audit, and crash-only resume all fall out of it.
+- Electric is read-path only. Writes go through the server's generic `/writes` endpoint, which captures `pg_current_xact_id()` inside the mutation transaction and returns it so the optimistic UI reconciles against the exact transaction.
+- Control-plane-via-data-plane. Interrupt / approve / reject / override are rows that sync into the portless agent.
+- Single typed schema spine. `packages/schema` (drizzle + drizzle-zod) emits the DDL, row types, payload validation, and the agent's tool schemas.
 
 ### Security model
 
-- **WorkOS AuthKit** issues bearer tokens; the server verifies each against the
-  WorkOS JWKS (`jose`). The JWT `sub` is the per-user identity.
-- **Electric is public by default** — so the only way in is the server's proxy,
-  which injects `where user_id = <sub>` (the client never authors a filter), adds
-  `Vary: Authorization` so a cache can't leak rows across users, and gates
-  events/controls on session ownership. Logout forces a reload to flush synced rows.
+- Self-hosted session auth. Email + password (scrypt-hashed via `node:crypto`); on login the server mints a high-entropy opaque token and stores only its SHA-256 hash as the session id. The SPA sends the token as a bearer; the server resolves it to a `users.id` on every request. No external IdP, no auth keys to configure.
+- Electric is public by default — access is through the server's proxy, which injects `where user_id = <sub>`, adds `Vary: Authorization`, and gates events/controls on session ownership. Logout invalidates the server session and forces a reload.
 
 ### Constraint compliance (PRD)
 
-TypeScript end to end · Electric SQL + TanStack DB + Postgres · **no** Next.js ·
-**no** websockets · **no** coding-agent SDK (the loop is built on the Vercel AI SDK) ·
-`docker compose up` with only a `.env` · the **agent container exposes no ports**.
+TypeScript end to end · Electric SQL + TanStack DB + Postgres · no Next.js · no websockets · no coding-agent SDK (the loop is built on the Vercel AI SDK) · `docker compose up` with only a `.env` · the agent container exposes no ports.
 
 ---
 
@@ -88,7 +98,7 @@ TypeScript end to end · Electric SQL + TanStack DB + Postgres · **no** Next.js
 
 ```
 packages/schema   drizzle tables + drizzle-zod + tool policy (single source of truth)
-apps/server       Fastify: /writes (txid), Electric auth proxy, WorkOS verify, migrations
+apps/server       Fastify: /writes (txid), Electric auth proxy, session auth, migrations
 apps/agent        portless daemon: agent loop, tools, interception, crash-only resume
 apps/web          Vite + React + TanStack DB: shell, live trace, interception console
 ```
@@ -103,11 +113,31 @@ pnpm -r test:coverage        # enforced at 100% lines/functions/statements
 pnpm --filter @steer/web e2e # Playwright two-window live-sync test (self-contained)
 ```
 
-Integration tests run against a real Postgres (`docker compose up -d postgres`). The
-two-window E2E drives two browser tabs through a shared store harness (no external
-services), proving the live cross-window sync UX.
+Integration tests run against a real Postgres (`docker compose up -d postgres`). The two-window E2E drives two browser tabs through a shared store harness, proving the live cross-window sync UX.
 
-## Demo
+### Run locally (hot reload)
 
-A Loom walkthrough (architecture, data model, security model, and a live
-interception) is linked here: **[Loom — TODO]**.
+`docker compose up` is the one-shot deliverable, but rebuilds an image on every change. For a tight edit-loop, run the app you're working on on the host (Vite HMR / `tsx watch`) against containerized infrastructure. The host dev scripts read the repo-root `.env` and `.env.local`: they inject the localhost `DATABASE_URL` / `ELECTRIC_URL` (the file's values use Docker hostnames the host can't resolve) and pull the model key from the file.
+
+> `docker compose` auto-reads `.env` only. If your LLM key lives in `.env.local`, add `--env-file .env.local` to the `docker compose` commands below.
+
+Tier 1 — hot-reload the UI (most common). Backend in Docker, web on the host:
+
+```bash
+docker compose up server agent                 # starts postgres, electric, migrate, server, agent
+PORT=5180 pnpm --filter @steer/web dev         # Vite + HMR (any free port; omit PORT for 5173)
+```
+
+Open http://localhost:5180. The browser hits the Dockerized server on `:8080` (CORS-enabled), which proxies to Electric internally. Edit `apps/web` and the UI hot-reloads.
+
+Tier 2 — hot-reload server / agent too. Only the data plane runs in Docker; the override publishes Electric to `127.0.0.1:3000`. Run each in its own terminal:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up postgres electric
+pnpm --filter @steer/server migrate:local   # apply migrations to the host-reachable Postgres
+pnpm --filter @steer/server dev             # tsx watch  → :8080
+pnpm --filter @steer/agent  dev             # tsx watch, portless
+PORT=5180 pnpm --filter @steer/web dev      # tsx/Vite HMR → :5180
+```
+
+When the UI runs on a non-default port, point it at the server with `VITE_SERVER_URL=http://localhost:8080` (the default). Self-hosted auth has no redirect URI to register, so a non-default UI port needs no extra auth config.

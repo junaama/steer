@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "DATABASE_URL=${DATABASE_URL:-postgresql://steer:steer@localhost:54321/steer?sslmode=disable} ELECTRIC_URL=${ELECTRIC_URL:-http://localhost:3000} tsx watch --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/index.ts",
     "serve": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "migrate": "tsx src/migrate.ts",
+    "migrate:local": "DATABASE_URL=${DATABASE_URL:-postgresql://steer:steer@localhost:54321/steer?sslmode=disable} tsx --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local src/migrate.ts",
     "seed": "tsx src/seed.ts",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json --noEmit",

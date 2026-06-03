@@ -1,0 +1,4 @@
+# Scratch workspace the agent writes into — keep the dir, ignore its contents.
+*
+!.gitignore
+!README.md

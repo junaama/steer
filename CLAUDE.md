@@ -1,3 +1,5 @@
+Stack: Typescript, Vite, React, TanStack, Self-Rolled Auth, Vercel AI SDK
+
 Docs: read repo docs before coding; update docs/changelog for user-visible behavior changes.
 
 Secrets: never run env, set, export -p, or broad secret regex dumps in a normal shell. Query exact names only; redact values.
@@ -7,13 +9,4 @@ Secrets: never run env, set, export -p, or broad secret regex dumps in a normal 
 - create an evaluation test for every user-facing agent call with golden sets.
 - do not accept smoke tests as "test driven development". TDD requires one of unit, integration, e2e tests.
 - do not use inference for test outputs, use database fetches/results
-
-## project structure
-
-## agent loop
-
-## cli architecture
-
-## stack
-
 

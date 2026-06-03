@@ -67,8 +67,6 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
       ELECTRIC_URL: ${ELECTRIC_URL:-http://electric:3000}
-      WORKOS_API_KEY: ${WORKOS_API_KEY:-}
-      WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
       PORT: "8080"
     depends_on:
       postgres:
@@ -91,12 +89,8 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:8080}
-        VITE_WORKOS_CLIENT_ID: ${VITE_WORKOS_CLIENT_ID:-}
-        VITE_WORKOS_REDIRECT_URI: ${VITE_WORKOS_REDIRECT_URI:-http://localhost:5173/callback}
     environment:
       VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:8080}
-      VITE_WORKOS_CLIENT_ID: ${VITE_WORKOS_CLIENT_ID:-}
-      VITE_WORKOS_REDIRECT_URI: ${VITE_WORKOS_REDIRECT_URI:-http://localhost:5173/callback}
     depends_on:
       server:
         condition: service_healthy
@@ -117,6 +111,14 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      # The agent does its coding work in this dir (the mounted workspace below).
+      STEER_WORKSPACE_ROOT: /workspace
+      STEER_MAX_STEPS: ${STEER_MAX_STEPS:-40}
+    # Mount a real project for the agent to work on — like `claude -p` in your cwd.
+    # Point it anywhere:  WORKSPACE_DIR=~/dev/myapp docker compose up
+    # Default is ./workspace (a scratch dir in the repo).
+    volumes:
+      - ${WORKSPACE_DIR:-./workspace}:/workspace
     depends_on:
       server:
         condition: service_healthy

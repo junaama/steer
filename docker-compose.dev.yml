@@ -1,0 +1,14 @@
+# ============================================================
+# Host-dev override. Publishes Electric to localhost ONLY so a host-run server
+# (`pnpm --filter @steer/server dev`) can reach it. The base compose keeps
+# Electric internal — that is the canonical `docker compose up` deliverable and
+# is unchanged. Use this override only for full host development:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up postgres electric
+# ============================================================
+
+services:
+  electric:
+    # 127.0.0.1 only — reachable from the host, never advertised on the network.
+    ports:
+      - "127.0.0.1:3000:3000"
