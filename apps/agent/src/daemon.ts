@@ -7,7 +7,7 @@ import type { Db } from './db.js'
 import { createDbStore } from './store.js'
 import { runSession } from './loop.js'
 import { tools } from './tools/index.js'
-import { createAnthropicDriver } from './model-anthropic.js'
+import { createModelDriver } from './model.js'
 
 /**
  * Pick up sessions that need work and run them. 'starting' is a fresh task;
@@ -23,7 +23,7 @@ export async function pollAndRun(db: Db, active: Set<string>): Promise<void> {
     void (async () => {
       try {
         const workspaceRoot = await mkdtemp(join(tmpdir(), `steer-${s.id}-`))
-        const driver = createAnthropicDriver({ model: s.model, task: s.task })
+        const driver = createModelDriver({ model: s.model, task: s.task })
         await runSession(store, driver, s.id, { workspaceRoot, tools })
       } catch {
         await store.setStatus(s.id, 'error')

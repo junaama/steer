@@ -9,7 +9,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       // Entrypoint, poll daemon, external-LLM driver, and DB infra.
-      exclude: ['**/*.test.ts', 'src/index.ts', 'src/daemon.ts', 'src/model-anthropic.ts', 'src/db.ts'],
+      exclude: ['**/*.test.ts', 'src/index.ts', 'src/daemon.ts', 'src/model.ts', 'src/db.ts'],
       thresholds: { lines: 100, functions: 100, statements: 100, branches: 90 },
       reporter: ['text-summary'],
     },

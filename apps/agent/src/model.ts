@@ -1,32 +1,36 @@
 import { anthropic } from '@ai-sdk/anthropic'
-import { generateText, tool, type CoreMessage, type ToolSet } from 'ai'
+import { openai } from '@ai-sdk/openai'
+import { generateText, tool, type CoreMessage, type LanguageModel, type ToolSet } from 'ai'
 import { toolArgSchemas } from '@steer/schema'
 import type { ModelDriver, Step } from './loop.js'
 import type { StoredEvent } from './store.js'
 import { buildContext } from './context.js'
-
-const MODEL_IDS: Record<string, string> = {
-  sonnet: 'claude-3-5-sonnet-latest',
-  opus: 'claude-3-opus-latest',
-  haiku: 'claude-3-5-haiku-latest',
-}
+import { resolveProvider, resolveModelId, type Provider } from './provider.js'
 
 const toolSet: ToolSet = Object.fromEntries(
   Object.entries(toolArgSchemas).map(([name, parameters]) => [name, tool({ description: name, parameters })]),
 )
 
+function selectModel(provider: Provider, modelId: string): LanguageModel {
+  return provider === 'openai' ? openai(modelId) : anthropic(modelId)
+}
+
 /**
- * Production model driver — one LLM turn per `next()`. Tools are declared but not
- * auto-executed: the loop owns execution so operators can intercept. External
- * integration boundary (needs an API key); exercised via the live demo, not unit tests.
+ * Production model driver — provider-agnostic. The provider (OpenAI or Anthropic)
+ * is resolved from env; tools are declared but not auto-executed so the loop owns
+ * execution and operators can intercept. External integration boundary (needs an
+ * API key); exercised via the live demo, not unit tests.
  */
-export function createAnthropicDriver(opts: { model: string; task: string | null }): ModelDriver {
-  const modelId = MODEL_IDS[opts.model] ?? opts.model
+export function createModelDriver(opts: { model: string; task: string | null }): ModelDriver {
+  const provider = resolveProvider(process.env)
+  const modelId = resolveModelId(provider, opts.model, process.env)
+  const llm = selectModel(provider, modelId)
+
   return {
     async next(events: StoredEvent[]): Promise<Step> {
       const messages = buildContext(opts.task, events) as CoreMessage[]
       const result = await generateText({
-        model: anthropic(modelId),
+        model: llm,
         system:
           'You are a coding agent. Use the provided tools to inspect and edit the workspace. ' +
           'When the task is complete, reply with a short summary and call no tool.',

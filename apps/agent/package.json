@@ -14,6 +14,7 @@
   "dependencies": {
     "@steer/schema": "workspace:*",
     "@ai-sdk/anthropic": "^1.0.6",
+    "@ai-sdk/openai": "^1.0.11",
     "ai": "^4.0.30",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1"

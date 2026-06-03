@@ -8,7 +8,7 @@ Built on the principle that **Postgres is the single source of truth** and the U
 
 ## Quick start
 
-**Prerequisites:** Docker, and an Anthropic API key (for the agent) + a WorkOS AuthKit project (for login).
+**Prerequisites:** Docker, an **OpenAI or Anthropic API key** (for the agent), and a WorkOS AuthKit project (for login).
 
 ```bash
 git clone <this-repo> steer && cd steer
@@ -31,7 +31,7 @@ Then open **http://localhost:5173**, sign in, and create a session.
 |---|---|
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID` | server-side WorkOS auth |
 | `VITE_WORKOS_CLIENT_ID`, `VITE_WORKOS_REDIRECT_URI` | browser AuthKit (set the redirect to `http://localhost:5173/callback` and register it in the WorkOS dashboard) |
-| `ANTHROPIC_API_KEY` | the coding agent's model |
+| `OPENAI_API_KEY` *or* `ANTHROPIC_API_KEY` | the coding agent's model. Provider is auto-detected (OpenAI preferred when both set) or pinned with `LLM_PROVIDER=openai\|anthropic`; override the model with `OPENAI_MODEL` / `ANTHROPIC_MODEL` |
 | `DATABASE_URL` | defaults to the local Postgres container; point it at a [Neon](https://neon.tech) connection string for a hosted database |
 
 ---
