@@ -52,6 +52,51 @@ describe('buildTrace', () => {
     expect((items[0] as ToolItem).status).toBe('cancelled')
   })
 
+  it('marks a tool running on tool_started', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),
+      ev(1, 'tool_started', { toolCallId: 'tc1', name: 'grep' }),
+    ])
+    expect((items[0] as ToolItem).status).toBe('running')
+  })
+
+  it('carries before/after for file-writing proposals', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', {
+        toolCallId: 'w1',
+        name: 'write_file',
+        kind: 'side-effecting',
+        args: { path: 'a' },
+        before: 'x',
+        after: 'y',
+      }),
+    ])
+    const tool = items[0] as ToolItem
+    expect(tool.before).toBe('x')
+    expect(tool.after).toBe('y')
+  })
+
+  it('ignores tool events with no prior proposal and non-string ids', () => {
+    const items = buildTrace([
+      ev(0, 'tool_result', { toolCallId: 'orphan', name: 'grep', result: 'r' }),
+      ev(1, 'tool_proposed', { toolCallId: 123, name: 'grep', kind: 'read-only', args: {} }),
+    ])
+    expect(items).toHaveLength(0)
+  })
+
+  it('applies defaults for sparse payloads', () => {
+    const items = buildTrace([
+      ev(0, 'message', {}),
+      ev(1, 'tool_proposed', { toolCallId: 'tc1', args: {} }),
+    ])
+    expect((items[0] as { text: string }).text).toBe('')
+    const tool = items[1] as ToolItem
+    expect(tool.toolKind).toBe('read-only')
+    expect(tool.name).toBe('')
+    expect(tool.args).toEqual({})
+    expect(tool.before).toBeUndefined()
+  })
+
   it('does not mutate its input', () => {
     const input: RawEvent[] = [ev(0, 'message', { text: 'a' })]
     const frozen = Object.freeze(input)

@@ -24,4 +24,11 @@ describe('computeDiff', () => {
     expect(d.del).toBe(0)
     expect(d.lines.every((l) => l.t === 'ctx')).toBe(true)
   })
+
+  it('treats truncation to empty as all deletions', () => {
+    const d = computeDiff('x\ny', '')
+    expect(d.add).toBe(0)
+    expect(d.del).toBe(2)
+    expect(d.lines.every((l) => l.t === 'del')).toBe(true)
+  })
 })

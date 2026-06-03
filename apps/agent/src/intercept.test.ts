@@ -86,6 +86,15 @@ describe('U8 approval gate (side-effecting tools)', () => {
     expect(await fileExists('rejected.txt')).toBe(false)
   })
 
+  it('returns interrupted when an interrupt arrives at the gate', async () => {
+    const id = await newSession()
+    await addControl(id, 'interrupt', {})
+    const step: ToolStep = { toolCallId: 'w1', name: 'write_file', args: { path: 'int.txt', content: 'X' } }
+    const r = await resolveTool(store, id, step, { ...base, workspaceRoot: workspace })
+    expect(r).toBe('interrupted')
+    expect(await fileExists('int.txt')).toBe(false)
+  })
+
   it('holds at the gate with no execution until a decision arrives', async () => {
     const id = await newSession()
     const ac = new AbortController()
@@ -147,6 +156,32 @@ describe('U10 live cancel-and-substitute (read-only)', () => {
     const events = await store.listEvents(id)
     expect(events.map((e) => e.type)).toEqual(['tool_substituted'])
     expect((events[0]!.payload as { result: string }).result).toContain('hello')
+  })
+
+  it('returns interrupted when an interrupt arrives during a read-only tool', async () => {
+    const id = await newSession()
+    await addControl(id, 'interrupt', {})
+    const step: ToolStep = { toolCallId: 'tc1', name: 'grep', args: { pattern: 'x', path: 'a.txt' } }
+    const r = await resolveTool(store, id, step, { tools: { ...tools, grep: slowRead }, workspaceRoot: workspace, pollMs: 5 })
+    expect(r).toBe('interrupted')
+  })
+
+  it('records an unknown read-only tool as an error result', async () => {
+    const id = await newSession()
+    const step: ToolStep = { toolCallId: 'tc1', name: 'grep', args: { pattern: 'x', path: 'a.txt' } }
+    await resolveTool(store, id, step, { tools: {}, workspaceRoot: workspace, pollMs: 5 })
+    const events = await store.listEvents(id)
+    expect((events[0]!.payload as { result: string }).result).toMatch(/unknown tool/)
+  })
+
+  it('captures a substitute tool error in the result', async () => {
+    const id = await newSession()
+    await addControl(id, 'override', { toolCallId: 'tc1', newTool: 'read_file', newArgs: { path: 'missing.txt' } })
+    const step: ToolStep = { toolCallId: 'tc1', name: 'grep', args: { pattern: 'x', path: 'a.txt' } }
+    await resolveTool(store, id, step, { ...base, workspaceRoot: workspace })
+    const events = await store.listEvents(id)
+    const p = events.find((e) => e.type === 'tool_substituted')!.payload as { result: string }
+    expect(p.result).toMatch(/^error:/)
   })
 
   it('returns the result when the tool finishes before any control', async () => {

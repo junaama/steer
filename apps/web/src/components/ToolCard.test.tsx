@@ -49,4 +49,32 @@ describe('ToolCard', () => {
     render(<ToolCard tool={tool({ name: 'read', substitutedFrom: 'grep', status: 'substituted', result: 'r' })} />)
     expect(screen.getByText(/operator substituted/)).toBeInTheDocument()
   })
+
+  it('handles a tool with no args', () => {
+    render(<ToolCard tool={tool({ name: 'list_dir', status: 'running', args: {} })} />)
+    expect(screen.getByText('list_dir')).toBeInTheDocument()
+  })
+
+  it('summarizes multiple args with a +N indicator', () => {
+    render(<ToolCard tool={tool({ name: 'grep', status: 'running', args: { pattern: 'x', path: 'src/', flags: '-rn' } })} />)
+    expect(screen.getByText(/\+2/)).toBeInTheDocument()
+  })
+
+  it('labels the outcome for a completed write', () => {
+    render(
+      <ToolCard
+        tool={tool({
+          name: 'write_file',
+          toolKind: 'side-effecting',
+          status: 'done',
+          args: { path: 'a' },
+          before: 'x',
+          after: 'y',
+          result: 'Wrote a',
+        })}
+      />,
+    )
+    expect(screen.getByText('Outcome')).toBeInTheDocument()
+    expect(screen.getByText('Wrote a')).toBeInTheDocument()
+  })
 })

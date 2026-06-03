@@ -54,6 +54,19 @@ describe('InterceptControls', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'swap', newTool: 'read_file' })
   })
 
+  it('opens the swap picker on a pending tool', () => {
+    const t = tool('pending', { name: 'write_file', toolKind: 'side-effecting', args: { path: 'a' } })
+    render(<InterceptControls tool={t} onAction={vi.fn()} />)
+    fireEvent.click(screen.getByText('Swap → read-only'))
+    expect(screen.getByText('read_file')).toBeInTheDocument()
+  })
+
+  it('opens the args editor on a running tool', () => {
+    render(<InterceptControls tool={tool('running', { args: { path: 'a' } })} onAction={vi.fn()} />)
+    fireEvent.click(screen.getByText('Edit args'))
+    expect(screen.getByLabelText('path')).toBeInTheDocument()
+  })
+
   it('submits edited args', () => {
     const onAction = vi.fn()
     const t = tool('pending', { name: 'write_file', toolKind: 'side-effecting', args: { path: 'a.ts' } })
@@ -62,5 +75,16 @@ describe('InterceptControls', () => {
     fireEvent.change(screen.getByLabelText('path'), { target: { value: 'b.ts' } })
     fireEvent.click(screen.getByText('Run with edits'))
     expect(onAction).toHaveBeenCalledWith({ type: 'edit', newArgs: { path: 'b.ts' } })
+  })
+
+  it('uses a textarea for long argument values and can be closed', () => {
+    const t = tool('pending', { name: 'write_file', toolKind: 'side-effecting', args: { content: 'x'.repeat(50) } })
+    render(<InterceptControls tool={t} onAction={vi.fn()} />)
+    fireEvent.click(screen.getByText('Edit args'))
+    const ta = screen.getByLabelText('content')
+    expect(ta.tagName).toBe('TEXTAREA')
+    fireEvent.change(ta, { target: { value: 'z'.repeat(50) } })
+    fireEvent.click(screen.getByLabelText('Close'))
+    expect(screen.queryByLabelText('content')).not.toBeInTheDocument()
   })
 })

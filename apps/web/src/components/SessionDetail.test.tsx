@@ -60,4 +60,19 @@ describe('SessionDetail', () => {
     setup('running', { renderToolControls: () => <button>Intervene</button> })
     expect(screen.getByText('Intervene')).toBeInTheDocument()
   })
+
+  it('renders a thinking item with its role label', () => {
+    render(
+      <SessionDetail
+        title="t"
+        model="sonnet"
+        status="completed"
+        items={[{ kind: 'thinking', key: 't0', text: 'pondering' }]}
+        onInterrupt={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('pondering')).toBeInTheDocument()
+    expect(screen.getByText('thinking')).toBeInTheDocument()
+  })
 })

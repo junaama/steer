@@ -122,6 +122,28 @@ describe('POST /writes', () => {
     expect(rows.rowCount).toBe(1)
   })
 
+  it('renames and deletes a session the user owns', async () => {
+    await insertSession('tokenA', 's1', 'Original')
+    const upd = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'update', payload: { id: 's1', title: 'Renamed', lastStatus: 'running', model: 'opus' } },
+    })
+    expect(upd.statusCode).toBe(200)
+    const row = await pool.query('select title, last_status, model from sessions where id=$1', ['s1'])
+    expect(row.rows[0]).toMatchObject({ title: 'Renamed', last_status: 'running', model: 'opus' })
+
+    const del = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'delete', payload: { id: 's1' } },
+    })
+    expect(del.statusCode).toBe(200)
+    expect((await pool.query('select 1 from sessions where id=$1', ['s1'])).rowCount).toBe(0)
+  })
+
   it('validates control payloads — override to a side-effecting tool is rejected', async () => {
     await insertSession('tokenA', 's1')
     const bad = await app.inject({
@@ -147,6 +169,66 @@ describe('POST /writes', () => {
     })
     expect(ok.statusCode).toBe(200)
   })
+
+  it('accepts an event insert and rejects event update / control update', async () => {
+    await insertSession('tokenA', 's1')
+    const ins = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: {
+        collection: 'events',
+        op: 'insert',
+        payload: { sessionId: 's1', seq: 0, type: 'message', payload: { text: 'hi' } },
+      },
+    })
+    expect(ins.statusCode).toBe(200)
+    const evUpd = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'events', op: 'update', payload: { sessionId: 's1', seq: 0, type: 'message', payload: {} } },
+    })
+    expect(evUpd.statusCode).toBe(400)
+    const ctlUpd = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'controls', op: 'update', payload: { sessionId: 's1', type: 'interrupt', payload: {} } },
+    })
+    expect(ctlUpd.statusCode).toBe(400)
+  })
+
+  it('rejects an invalid session payload (400)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'insert', payload: { id: 's1' } }, // missing title
+    })
+    expect(r.statusCode).toBe(400)
+  })
+
+  it('rejects a malformed request body (400)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'widgets', op: 'insert', payload: {} },
+    })
+    expect(r.statusCode).toBe(400)
+  })
+
+  it('surfaces an unexpected write failure (duplicate id) as 400', async () => {
+    await insertSession('tokenA', 'dup', 'first')
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'insert', payload: { id: 'dup', title: 'again' } },
+    })
+    expect(r.statusCode).toBe(400)
+  })
 })
 
 describe('Electric proxy', () => {
@@ -170,5 +252,18 @@ describe('Electric proxy', () => {
     const ok = await app.inject({ method: 'GET', url: '/sync/events?session_id=s1', headers: auth('tokenA') })
     expect(ok.statusCode).toBe(200)
     expect(shapeParam(electricCalls.at(-1) ?? '', 'where')).toBe("session_id = 's1'")
+  })
+
+  it('404s an unknown collection and 400s events without a session_id', async () => {
+    expect((await app.inject({ method: 'GET', url: '/sync/widgets', headers: auth('tokenA') })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'GET', url: '/sync/events', headers: auth('tokenA') })).statusCode).toBe(400)
+  })
+
+  it('scopes the controls shape and passes through the offset cursor', async () => {
+    await insertSession('tokenA', 's1')
+    const r = await app.inject({ method: 'GET', url: '/sync/controls?session_id=s1&offset=42', headers: auth('tokenA') })
+    expect(r.statusCode).toBe(200)
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('controls')
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'offset')).toBe('42')
   })
 })

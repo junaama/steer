@@ -44,10 +44,26 @@ describe('Sidebar', () => {
     expect(screen.getByText('No sessions match')).toBeInTheDocument()
   })
 
+  it('shows "No sessions yet" when the list is empty with no query', () => {
+    setup({ sessions: [] })
+    expect(screen.getByText('No sessions yet')).toBeInTheDocument()
+  })
+
+  it('marks the active row', () => {
+    setup({ activeId: '1' })
+    expect(screen.getByText('Add auth').closest('.srow')).toHaveAttribute('data-active', 'true')
+  })
+
   it('fires onQuery while typing', () => {
     const p = setup()
     fireEvent.change(screen.getByLabelText('Search sessions'), { target: { value: 'x' } })
     expect(p.onQuery).toHaveBeenCalledWith('x')
+  })
+
+  it('fires onFilter when a filter chip is clicked', () => {
+    const p = setup()
+    fireEvent.click(screen.getByText('Live'))
+    expect(p.onFilter).toHaveBeenCalledWith('running')
   })
 
   it('wires open / new / delete callbacks', () => {

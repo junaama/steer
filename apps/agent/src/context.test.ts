@@ -14,6 +14,10 @@ describe('buildContext', () => {
     expect(buildContext('fix login', [])).toEqual([{ role: 'user', content: 'fix login' }])
   })
 
+  it('defaults missing message text to empty', () => {
+    expect(buildContext(null, [ev(0, 'message', {})])).toEqual([{ role: 'assistant', content: '' }])
+  })
+
   it('maps assistant messages and tool results', () => {
     const msgs = buildContext(null, [
       ev(0, 'message', { text: 'hi' }),

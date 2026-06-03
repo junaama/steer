@@ -31,4 +31,12 @@ describe('performLogout', () => {
     expect(signOut).toHaveBeenCalledWith({ returnTo: 'http://app' })
     expect(order).toEqual(['signOut', 'reload'])
   })
+
+  it('signs out with no options when returnTo is omitted', async () => {
+    const signOut = vi.fn(async () => undefined)
+    const reload = vi.fn()
+    await performLogout(signOut, reload)
+    expect(signOut).toHaveBeenCalledWith(undefined)
+    expect(reload).toHaveBeenCalled()
+  })
 })

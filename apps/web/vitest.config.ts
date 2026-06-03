@@ -7,5 +7,22 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      // Entrypoint + external-SDK shells (WorkOS AuthKit, TanStack Electric)
+      // verified by the two-window E2E, not unit tests.
+      exclude: [
+        '**/*.test.{ts,tsx}',
+        'src/main.tsx',
+        'src/App.tsx',
+        'src/auth/AuthProvider.tsx',
+        'src/data/electric.ts',
+        'src/data/types.ts',
+        'src/test-setup.ts',
+      ],
+      thresholds: { lines: 100, functions: 100, statements: 100, branches: 90 },
+      reporter: ['text-summary'],
+    },
   },
 })

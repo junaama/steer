@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest'
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { read_file, list_dir, grep, write_file, bash } from './index.js'
+import { read_file, list_dir, grep, glob, web_fetch, write_file, bash } from './index.js'
 
 let root: string
 
@@ -53,8 +53,28 @@ describe('write_file', () => {
   })
 })
 
+describe('glob', () => {
+  it('matches files by glob pattern', async () => {
+    expect(await glob({ pattern: '*.md' }, ctx())).toContain('README.md')
+  })
+  it('reports no files', async () => {
+    expect(await glob({ pattern: '*.nope' }, ctx())).toBe('— no files')
+  })
+})
+
+describe('web_fetch', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('fetches text from a url', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('hello body')))
+    expect(await web_fetch({ url: 'http://example.test' }, ctx())).toBe('hello body')
+  })
+})
+
 describe('bash', () => {
   it('runs a command and captures stdout', async () => {
     expect((await bash({ command: 'echo hi' }, ctx())).trim()).toBe('hi')
+  })
+  it('appends a non-zero exit marker', async () => {
+    expect(await bash({ command: 'exit 3' }, ctx())).toContain('[exit 3]')
   })
 })
