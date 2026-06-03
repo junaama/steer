@@ -27,6 +27,10 @@ export const controlInsertSchema = createInsertSchema(controls)
 
 const toolRef = z.object({ toolCallId: z.string().min(1), name: z.string().min(1) })
 const textPayload = z.object({ text: z.string() })
+export const planItemSchema = z.object({
+  text: z.string().min(1),
+  status: z.enum(['pending', 'in_progress', 'done']),
+})
 
 /** Event payload schema keyed by `event.type`. */
 export const eventPayloadSchemas = {
@@ -49,6 +53,7 @@ export const eventPayloadSchemas = {
   tool_result: toolRef.extend({ result: z.string(), edited: z.boolean().optional() }),
   tool_cancelled: toolRef.extend({ reason: z.string().optional() }),
   tool_substituted: toolRef.extend({ from: z.string().min(1), result: z.string() }),
+  plan: z.object({ items: z.array(planItemSchema) }),
   status_changed: z.object({ status: sessionStatusSchema }),
   interrupted: z.object({ atSeq: z.number().int().nonnegative() }),
 } satisfies Record<EventType, z.ZodTypeAny>

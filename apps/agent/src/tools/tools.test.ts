@@ -9,6 +9,7 @@ import {
   glob,
   web_fetch,
   write_file,
+  todo_write,
   bash,
   edit_file,
   multi_edit,
@@ -62,6 +63,27 @@ describe('write_file', () => {
     const res = await write_file({ path: 'out.txt', content: 'a\nb' }, ctx())
     expect(res).toContain('Wrote out.txt')
     expect(await read_file({ path: 'out.txt' }, ctx())).toBe('a\nb')
+  })
+})
+
+describe('todo_write', () => {
+  it('validates todo items and confirms the updated plan count', async () => {
+    await expect(
+      todo_write(
+        {
+          items: [
+            { text: 'write tests', status: 'pending' },
+            { text: 'implement tool', status: 'in_progress' },
+            { text: 'verify coverage', status: 'done' },
+          ],
+        },
+        ctx(),
+      ),
+    ).resolves.toBe('Updated plan · 3 items')
+  })
+
+  it('rejects malformed todo items', async () => {
+    await expect(todo_write({ items: [{ text: 'write tests', status: 'blocked' }] }, ctx())).rejects.toThrow()
   })
 })
 

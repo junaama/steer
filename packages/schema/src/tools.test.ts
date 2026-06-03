@@ -10,7 +10,7 @@ import {
 
 describe('tool policy', () => {
   it('classifies every read-only tool as read-only', () => {
-    for (const name of ['read_file', 'list_dir', 'grep', 'glob', 'web_fetch'] as const) {
+    for (const name of ['read_file', 'list_dir', 'grep', 'glob', 'web_fetch', 'todo_write'] as const) {
       expect(classifyTool(name)).toBe('read-only')
       expect(isReadOnly(name)).toBe(true)
     }
@@ -30,7 +30,7 @@ describe('tool policy', () => {
 
   it('READ_ONLY_TOOLS contains exactly the read-only tools', () => {
     expect([...READ_ONLY_TOOLS].sort()).toEqual(
-      ['glob', 'grep', 'list_dir', 'read_file', 'web_fetch'].sort(),
+      ['glob', 'grep', 'list_dir', 'read_file', 'todo_write', 'web_fetch'].sort(),
     )
     expect(READ_ONLY_TOOLS).not.toContain('write_file')
     expect(READ_ONLY_TOOLS).not.toContain('edit_file')
@@ -85,6 +85,21 @@ describe('validateToolArgs', () => {
       timeoutMs: 1000,
     })
     expect(validateToolArgs('run_command', { command: 'pnpm test' })).toEqual({ command: 'pnpm test' })
+    expect(
+      validateToolArgs('todo_write', {
+        items: [
+          { text: 'write tests', status: 'pending' },
+          { text: 'implement tool', status: 'in_progress' },
+          { text: 'verify coverage', status: 'done' },
+        ],
+      }),
+    ).toEqual({
+      items: [
+        { text: 'write tests', status: 'pending' },
+        { text: 'implement tool', status: 'in_progress' },
+        { text: 'verify coverage', status: 'done' },
+      ],
+    })
   })
 
   it('rejects malformed args', () => {
@@ -96,5 +111,7 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('run_command', { command: '' })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 0 })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 1.5 })).toThrow()
+    expect(() => validateToolArgs('todo_write', { items: [{ text: 'x', status: 'blocked' }] })).toThrow()
+    expect(() => validateToolArgs('todo_write', { items: [{ status: 'pending' }] })).toThrow()
   })
 })

@@ -25,6 +25,7 @@ function setup(status: SessionStatus, over: Partial<SessionDetailProps> = {}): S
     model: 'sonnet',
     status,
     items,
+    plan: null,
     onInterrupt: vi.fn(),
     onContinue: vi.fn(),
     ...over,
@@ -68,6 +69,7 @@ describe('SessionDetail', () => {
         model="sonnet"
         status="completed"
         items={[{ kind: 'user', key: 'u1', text: 'now add tests' }]}
+        plan={null}
         onInterrupt={vi.fn()}
         onContinue={vi.fn()}
       />,
@@ -85,11 +87,24 @@ describe('SessionDetail', () => {
         model="sonnet"
         status="completed"
         items={[{ kind: 'thinking', key: 't0', text: 'pondering' }]}
+        plan={null}
         onInterrupt={vi.fn()}
         onContinue={vi.fn()}
       />,
     )
     expect(screen.getByText('pondering')).toBeInTheDocument()
     expect(screen.getByText('thinking')).toBeInTheDocument()
+  })
+
+  it('pins the todo panel when a plan is present', () => {
+    setup('running', {
+      plan: [
+        { text: 'write tests', status: 'pending' },
+        { text: 'ship it', status: 'done' },
+      ],
+    })
+    expect(screen.getByLabelText('Todo list')).toBeInTheDocument()
+    expect(screen.getByText('write tests')).toBeInTheDocument()
+    expect(screen.getByText('ship it')).toBeInTheDocument()
   })
 })

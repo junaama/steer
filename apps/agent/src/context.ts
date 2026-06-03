@@ -7,6 +7,18 @@ export interface ContextMessage {
 
 const textOf = (payload: unknown): string => String((payload as { text?: string }).text ?? '')
 
+type PlanItem = { text: string; status: 'pending' | 'in_progress' | 'done' }
+
+function latestPlanItems(events: readonly StoredEvent[]): PlanItem[] | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!
+    if (event.type !== 'plan') continue
+    const payload = event.payload as { items?: unknown }
+    return Array.isArray(payload.items) ? (payload.items as PlanItem[]) : null
+  }
+  return null
+}
+
 /**
  * Project the event log into the LLM context. After an override, the executed
  * (substituted) tool appears as *the* call, and a system note records the
@@ -16,6 +28,11 @@ const textOf = (payload: unknown): string => String((payload as { text?: string 
 export function buildContext(task: string | null, events: readonly StoredEvent[]): ContextMessage[] {
   const messages: ContextMessage[] = []
   if (task) messages.push({ role: 'user', content: task })
+  const plan = latestPlanItems(events)
+  if (plan) {
+    const lines = plan.map((item) => `- [${item.status}] ${item.text}`)
+    messages.push({ role: 'system', content: `Current todo list:\n${lines.join('\n')}` })
+  }
 
   for (const e of events) {
     if (e.type === 'message') {

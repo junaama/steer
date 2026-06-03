@@ -27,6 +27,7 @@ export const EVENT_TYPES = [
   'tool_result',
   'tool_cancelled',
   'tool_substituted',
+  'plan',
   'status_changed',
   'interrupted',
 ] as const

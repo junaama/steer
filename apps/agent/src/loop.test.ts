@@ -300,6 +300,40 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
+  it('records todo_write as a normal read-only tool_result and a plan event', async () => {
+    const id = await newSession()
+    const items = [
+      { text: 'write schema tests', status: 'pending' },
+      { text: 'wire agent loop', status: 'in_progress' },
+      { text: 'render todo panel', status: 'done' },
+    ]
+    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(types(events)).toEqual(['tool_proposed', 'tool_result', 'plan'])
+    const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
+    expect(result.result).toBe('Updated plan · 3 items')
+    const plan = events.find((e) => e.type === 'plan')!.payload as { items: typeof items }
+    expect(plan.items).toEqual(items)
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('does not append a plan event when todo_write args are malformed', async () => {
+    const id = await newSession()
+    const script: Step[] = [
+      { t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items: [{ text: 'bad', status: 'blocked' }] } },
+    ]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(types(events)).toEqual(['tool_proposed', 'tool_result'])
+    const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
+    expect(result.result).toMatch(/^error:/)
+  })
+
   it('auto-runs a second run_command after an alwaysAllow approval without re-entering awaiting-approval', async () => {
     const id = await newSession()
     await db.insert(controls).values({

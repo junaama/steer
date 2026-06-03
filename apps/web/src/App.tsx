@@ -11,7 +11,7 @@ import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
 import { createSessionsCollection, createEventsCollection } from './data/electric.js'
 import { decodeSessionRow, decodeEventRow } from './data/decode.js'
-import { buildTrace, type ToolItem } from './lib/trace.js'
+import { buildTrace, latestPlan, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
 import type { SessionRow, EventRow } from './data/types.js'
@@ -218,10 +218,9 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
   const live = useLiveQuery((q) => q.from({ e: events })) as unknown as { data?: EventRow[] }
   // Decode Electric's wire format: snake_case keys, stringified seq, jsonb-as-string payload.
   const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeEventRow)
-  const items = buildTrace(
-    rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload })),
-    session.task,
-  )
+  const rawEvents = rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload }))
+  const items = buildTrace(rawEvents, session.task)
+  const plan = latestPlan(rawEvents)
 
   const handleAction = (tool: ToolItem, action: InterceptAction): void => {
     const id = tool.toolCallId
@@ -238,6 +237,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       model={session.model}
       status={session.lastStatus}
       items={items}
+      plan={plan}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
       onContinue={() => void write.setStatus(session.id, 'starting')}
       renderToolControls={(tool) => <InterceptControls tool={tool} onAction={(a) => handleAction(tool, a)} />}

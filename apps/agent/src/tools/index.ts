@@ -71,6 +71,13 @@ export const web_fetch: ToolFn = async (args, ctx) => {
   return (await res.text()).slice(0, 4000)
 }
 
+export const todo_write: ToolFn = async (args) => {
+  const { items } = validateToolArgs('todo_write', args) as {
+    items: { text: string; status: 'pending' | 'in_progress' | 'done' }[]
+  }
+  return `Updated plan · ${items.length} items`
+}
+
 export const write_file: ToolFn = async (args, ctx) => {
   const { path, content } = validateToolArgs('write_file', args) as { path: string; content: string }
   await writeFile(safeJoin(ctx.workspaceRoot, path), content, 'utf8')
@@ -94,6 +101,7 @@ export const tools: Record<string, ToolFn> = {
   grep,
   glob,
   web_fetch,
+  todo_write,
   write_file,
   edit_file,
   multi_edit,

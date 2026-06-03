@@ -24,6 +24,25 @@ describe('event payloads', () => {
     expect(parseEventPayload('tool_proposed', p)).toEqual(p)
   })
 
+  it('round-trips a valid plan payload with each todo status', () => {
+    const p = {
+      items: [
+        { text: 'write tests', status: 'pending' },
+        { text: 'implement tool', status: 'in_progress' },
+        { text: 'verify coverage', status: 'done' },
+      ],
+    }
+    expect(parseEventPayload('plan', p)).toEqual(p)
+  })
+
+  it('rejects a plan item with an invalid status', () => {
+    expect(() => parseEventPayload('plan', { items: [{ text: 'write tests', status: 'blocked' }] })).toThrow()
+  })
+
+  it('rejects a plan item missing text', () => {
+    expect(() => parseEventPayload('plan', { items: [{ status: 'pending' }] })).toThrow()
+  })
+
   it('rejects an invalid tool_proposed payload (bad kind)', () => {
     expect(() =>
       parseEventPayload('tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'nope', args: {} }),

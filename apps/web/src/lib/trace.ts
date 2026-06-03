@@ -1,5 +1,10 @@
 import type { EventType, ToolStatus, ToolKind } from '@steer/schema'
 
+export interface PlanItem {
+  text: string
+  status: 'pending' | 'in_progress' | 'done'
+}
+
 export interface MessageItem {
   kind: 'message' | 'thinking' | 'user'
   key: string
@@ -29,6 +34,16 @@ export interface RawEvent {
   seq: number
   type: EventType
   payload: Record<string, unknown>
+}
+
+export function latestPlan(events: readonly RawEvent[]): PlanItem[] | null {
+  const sorted = [...events].sort((a, b) => b.seq - a.seq)
+  for (const e of sorted) {
+    if (e.type !== 'plan') continue
+    const items = e.payload.items
+    return Array.isArray(items) ? (items as PlanItem[]) : null
+  }
+  return null
 }
 
 /**

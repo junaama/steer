@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+const todoItemSchema = z.object({
+  text: z.string().min(1),
+  status: z.enum(['pending', 'in_progress', 'done']),
+})
+
 /**
  * Tool registry, argument schemas, and the read-only vs side-effecting policy.
  * This is the single source of truth the agent's Vercel AI SDK tool defs, the
@@ -16,6 +21,7 @@ export const toolArgSchemas = {
   grep: z.object({ pattern: z.string().min(1), path: z.string().min(1), flags: z.string().optional() }),
   glob: z.object({ pattern: z.string().min(1) }),
   web_fetch: z.object({ url: z.string().url() }),
+  todo_write: z.object({ items: z.array(todoItemSchema) }),
   write_file: z.object({ path: z.string().min(1), content: z.string() }),
   edit_file: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string() }),
   multi_edit: z.object({
@@ -35,6 +41,7 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   grep: 'read-only',
   glob: 'read-only',
   web_fetch: 'read-only',
+  todo_write: 'read-only',
   write_file: 'side-effecting',
   edit_file: 'side-effecting',
   multi_edit: 'side-effecting',

@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import type { SessionStatus } from '@steer/schema'
-import type { TraceItem, ToolItem } from '../lib/trace.js'
+import type { PlanItem, TraceItem, ToolItem } from '../lib/trace.js'
 import { StatusPill } from './StatusPill.js'
 import { ToolCard } from './ToolCard.js'
+import { TodoPanel } from './TodoPanel.js'
 
 const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval']
 
@@ -17,6 +18,7 @@ export interface SessionDetailProps {
   model: string
   status: SessionStatus
   items: TraceItem[]
+  plan: PlanItem[] | null
   onInterrupt: () => void
   onContinue: () => void
   /** U11 injects per-tool interception controls; omitted here. */
@@ -50,6 +52,8 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
           )}
         </div>
       </header>
+
+      <TodoPanel items={props.plan} />
 
       <div className="trace-wrap">
         <div className="trace">

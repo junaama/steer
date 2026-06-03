@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { classifyTool } from '@steer/schema'
+import { classifyTool, validateToolArgs } from '@steer/schema'
 import type { AgentStore, StoredEvent } from './store.js'
 import type { ToolFn } from './tools/index.js'
 import { applyEdits, type Edit } from './tools/edit.js'
@@ -15,6 +15,7 @@ async function readBefore(root: string, path: string): Promise<string> {
 }
 
 const FILE_MUTATING_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit'])
+const PLAN_TOOL = 'todo_write'
 
 async function fileMutationPreview(root: string, name: string, args: Record<string, unknown>): Promise<
   { before: string; after: string } | undefined
@@ -182,6 +183,24 @@ export async function runSession(
       await store.appendEvent(sessionId, 'interrupted', { atSeq })
       await store.setStatus(sessionId, 'interrupted')
       return
+    }
+    if (step.name === PLAN_TOOL) {
+      const afterTool = await store.listEvents(sessionId)
+      const terminal = [...afterTool].reverse().find((event) => {
+        const payload = event.payload as { toolCallId?: unknown; name?: unknown }
+        return payload.toolCallId === step.toolCallId && payload.name === PLAN_TOOL
+      })
+      if (terminal?.type === 'tool_result') {
+        try {
+          const { items } = validateToolArgs(PLAN_TOOL, step.args) as {
+            items: { text: string; status: 'pending' | 'in_progress' | 'done' }[]
+          }
+          await store.appendEvent(sessionId, 'plan', { items })
+        } catch {
+          // The tool_result already records the validation error; malformed args
+          // must not become the durable current plan.
+        }
+      }
     }
     if (gated) await store.setStatus(sessionId, 'running')
   }

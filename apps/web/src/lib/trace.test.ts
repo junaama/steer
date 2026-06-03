@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTrace, type RawEvent, type ToolItem } from './trace.js'
+import { buildTrace, latestPlan, type RawEvent, type ToolItem } from './trace.js'
 
 const ev = (seq: number, type: RawEvent['type'], payload: Record<string, unknown>): RawEvent => ({ seq, type, payload })
 
@@ -158,5 +158,35 @@ describe('buildTrace', () => {
     const input: RawEvent[] = [ev(0, 'message', { text: 'a' })]
     const frozen = Object.freeze(input)
     expect(() => buildTrace(frozen)).not.toThrow()
+  })
+})
+
+describe('latestPlan', () => {
+  it('returns null when no plan event is present', () => {
+    expect(latestPlan([ev(0, 'message', { text: 'hi' })])).toBeNull()
+  })
+
+  it('returns the last plan by seq and leaves buildTrace unchanged', () => {
+    const first = [{ text: 'old', status: 'pending' }]
+    const second = [
+      { text: 'write tests', status: 'pending' },
+      { text: 'implement tool', status: 'in_progress' },
+      { text: 'verify coverage', status: 'done' },
+    ]
+    const events = [
+      ev(2, 'plan', { items: second }),
+      ev(0, 'plan', { items: first }),
+      ev(1, 'message', { text: 'working' }),
+    ]
+    expect(latestPlan(events)).toEqual(second)
+    expect(buildTrace(events)).toEqual([{ kind: 'message', key: 'm-1', text: 'working' }])
+  })
+
+  it('returns an empty latest plan distinctly from an absent plan', () => {
+    expect(latestPlan([ev(0, 'plan', { items: [] })])).toEqual([])
+  })
+
+  it('returns null for a malformed plan payload', () => {
+    expect(latestPlan([ev(0, 'plan', {})])).toBeNull()
   })
 })

@@ -30,6 +30,44 @@ describe('buildContext', () => {
     ])
   })
 
+  it('adds no plan note when no plan event exists', () => {
+    expect(buildContext('fix login', [ev(0, 'message', { text: 'done' })])).toEqual([
+      { role: 'user', content: 'fix login' },
+      { role: 'assistant', content: 'done' },
+    ])
+  })
+
+  it('includes the latest plan event as a system note', () => {
+    const msgs = buildContext(null, [
+      ev(0, 'plan', { items: [{ text: 'old item', status: 'pending' }] }),
+      ev(1, 'message', { text: 'working' }),
+      ev(2, 'plan', {
+        items: [
+          { text: 'write tests', status: 'pending' },
+          { text: 'implement tool', status: 'in_progress' },
+          { text: 'verify coverage', status: 'done' },
+        ],
+      }),
+    ])
+    expect(msgs[0]).toEqual({
+      role: 'system',
+      content:
+        'Current todo list:\n- [pending] write tests\n- [in_progress] implement tool\n- [done] verify coverage',
+    })
+    expect(msgs).toContainEqual({ role: 'assistant', content: 'working' })
+    expect(JSON.stringify(msgs)).not.toContain('old item')
+  })
+
+  it('treats an empty latest plan as the current plan note', () => {
+    expect(buildContext(null, [ev(0, 'plan', { items: [] })])).toEqual([
+      { role: 'system', content: 'Current todo list:\n' },
+    ])
+  })
+
+  it('omits malformed latest plan payloads', () => {
+    expect(buildContext(null, [ev(0, 'plan', {})])).toEqual([])
+  })
+
   it('maps assistant messages and tool results', () => {
     const msgs = buildContext(null, [
       ev(0, 'message', { text: 'hi' }),

@@ -574,6 +574,74 @@ textarea {
   min-height: 0;
   overflow: hidden;
 }
+.todo-panel {
+  margin: 0 18px 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+}
+.todo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.todo-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+}
+.todo-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.todo-item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--text-body);
+}
+.todo-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+.todo-item[data-status='pending'] {
+  color: var(--text-dim);
+}
+.todo-item[data-status='in_progress'] {
+  color: var(--sol-blue);
+}
+.todo-item[data-status='done'] {
+  color: var(--sol-green);
+}
+.todo-item[data-status='done'] .todo-text {
+  text-decoration: line-through;
+}
+.todo-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-body);
+}
+.todo-status {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 .trace {
   height: 100%;
   overflow-y: auto;
