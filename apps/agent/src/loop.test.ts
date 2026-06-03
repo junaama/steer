@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -34,6 +34,13 @@ function types(events: { type: EventType }[]): EventType[] {
 async function status(id: string): Promise<string> {
   const r = await db.select({ s: sessions.lastStatus }).from(sessions).where(eq(sessions.id, id))
   return r[0]!.s
+}
+
+async function fileExists(name: string): Promise<boolean> {
+  return access(join(workspace, name)).then(
+    () => true,
+    () => false,
+  )
 }
 
 beforeAll(async () => {
@@ -150,6 +157,41 @@ describe('runSession', () => {
     expect(proposed.before).toBe('') // new file
     expect(proposed.after).toBe('l1\nl2')
     expect(events.some((e) => e.type === 'tool_result')).toBe(true)
+  })
+
+  it('flips to awaiting-approval at a side-effecting gate, then back to running, then completed', async () => {
+    const id = await newSession()
+    const script: Step[] = [
+      { t: 'tool', toolCallId: 'tc1', name: 'write_file', args: { path: 'gated.txt', content: 'X' } },
+      { t: 'say', text: 'wrote it' },
+    ]
+    const p = runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    // Poll until the run parks at the gate with the AWAITING APPROVAL pill.
+    for (let i = 0; i < 100 && (await status(id)) !== 'awaiting-approval'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-approval')
+    // The write must not have executed while it waits.
+    expect(await fileExists('gated.txt')).toBe(false)
+    // Approve → the loop resumes (running) and finishes (completed).
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
+    await p
+    expect(await status(id)).toBe('completed')
+    expect(await fileExists('gated.txt')).toBe(true)
+  })
+
+  it('keeps a read-only tool in running and never enters awaiting-approval', async () => {
+    const id = await newSession()
+    const seen: string[] = []
+    const observingStore: AgentStore = {
+      ...store,
+      async setStatus(sid, st) {
+        seen.push(st)
+        return store.setStatus(sid, st)
+      },
+    }
+    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'read_file', args: { path: 'a.txt' } }]
+    await runSession(observingStore, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    expect(seen).not.toContain('awaiting-approval')
+    expect(await status(id)).toBe('completed')
   })
 
   it('halts mid-tool when an interrupt arrives during execution', async () => {

@@ -27,6 +27,13 @@ describe('runnableFromMessages', () => {
     expect(out).toEqual([{ id: 's2', model: 'sonnet', task: null }])
   })
 
+  it('includes an awaiting-approval session (resume a run that crashed at the gate)', () => {
+    const out = runnableFromMessages([
+      change('update', { id: 's-gate', last_status: 'awaiting-approval', model: 'sonnet', task: null }),
+    ])
+    expect(out).toEqual([{ id: 's-gate', model: 'sonnet', task: null }])
+  })
+
   it('defaults model to sonnet and task to null when absent or non-string', () => {
     expect(runnableFromMessages([change('insert', { id: 's3', last_status: 'starting' })])).toEqual([
       { id: 's3', model: 'sonnet', task: null },

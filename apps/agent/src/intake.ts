@@ -16,8 +16,10 @@ export interface SessionIntent {
 }
 
 // 'starting' = a fresh task; 'running' = a crashed run to resume (it replays in
-// the shape's reconnect snapshot). Everything else is terminal/idle — ignore it.
-const RUNNABLE = new Set<SessionStatus>(['starting', 'running'])
+// the shape's reconnect snapshot); 'awaiting-approval' = a run that crashed while
+// blocked at the approval gate — resume so it re-reaches the gate. Everything else
+// is terminal/idle — ignore it.
+const RUNNABLE = new Set<SessionStatus>(['starting', 'running', 'awaiting-approval'])
 
 /**
  * Pure projection of a batch of Electric messages to the sessions that should

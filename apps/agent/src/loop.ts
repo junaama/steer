@@ -115,10 +115,11 @@ export async function runSession(
     }
 
     // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
+    const kind = classifyTool(step.name)
     const proposed: Record<string, unknown> = {
       toolCallId: step.toolCallId,
       name: step.name,
-      kind: classifyTool(step.name),
+      kind,
       args: step.args,
     }
     if (step.name === 'write_file' && typeof step.args.path === 'string') {
@@ -127,6 +128,11 @@ export async function runSession(
       proposed.after = String(step.args.content ?? '')
     }
     await store.appendEvent(sessionId, 'tool_proposed', proposed)
+    // A side-effecting tool blocks at the approval gate — flip the session pill to
+    // AWAITING APPROVAL while it waits so the operator sees it needs a decision
+    // (the interrupt path below owns 'interrupted', so don't reset that case).
+    const gated = kind === 'side-effecting'
+    if (gated) await store.setStatus(sessionId, 'awaiting-approval')
     const outcome = await resolveTool(store, sessionId, step, {
       tools: options.tools,
       workspaceRoot: options.workspaceRoot,
@@ -140,5 +146,6 @@ export async function runSession(
       await store.setStatus(sessionId, 'interrupted')
       return
     }
+    if (gated) await store.setStatus(sessionId, 'running')
   }
 }
