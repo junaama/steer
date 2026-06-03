@@ -1,5 +1,5 @@
 import { filterSessions, type SessionView, type FilterId } from '../lib/filter.js'
-import { SESSION_STATUS_META, relTime } from '../lib/design.js'
+import { sessionStatusMeta, relTime } from '../lib/design.js'
 import { Icon } from './Icon.js'
 
 const FILTERS: { id: FilterId; label: string }[] = [
@@ -51,7 +51,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
           <div className="empty">{props.query ? 'No sessions match' : 'No sessions yet'}</div>
         )}
         {visible.map((s) => {
-          const meta = SESSION_STATUS_META[s.lastStatus]
+          const meta = sessionStatusMeta(s.lastStatus)
           return (
             <div
               key={s.id}

@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { SESSION_STATUSES, TOOL_STATUSES } from '@steer/schema'
-import { SESSION_STATUS_META, TOOL_STATUS_META, toolIcon, relTime } from './design.js'
+import {
+  SESSION_STATUS_META,
+  TOOL_STATUS_META,
+  sessionStatusMeta,
+  toolStatusMeta,
+  toolIcon,
+  relTime,
+} from './design.js'
 
 describe('status meta', () => {
   it('has a label + color for every session status', () => {
@@ -14,6 +21,21 @@ describe('status meta', () => {
       expect(TOOL_STATUS_META[s].color).toMatch(/^var\(--/)
       expect(TOOL_STATUS_META[s].label.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('status meta accessors (crash guard)', () => {
+  it('returns the real meta for a known status', () => {
+    expect(sessionStatusMeta('completed')).toBe(SESSION_STATUS_META.completed)
+    expect(toolStatusMeta('done')).toBe(TOOL_STATUS_META.done)
+  })
+  it('returns a neutral fallback instead of undefined for an unknown status', () => {
+    // The bug: an unmapped/undefined status reached `META[status].color` and crashed.
+    const sessionFallback = sessionStatusMeta('mystery')
+    const toolFallback = toolStatusMeta(undefined as unknown as string)
+    expect(sessionFallback.color).toMatch(/^var\(--/)
+    expect(sessionFallback.label).toBe('unknown')
+    expect(toolFallback.color).toMatch(/^var\(--/)
   })
 })
 

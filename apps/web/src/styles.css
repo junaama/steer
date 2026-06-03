@@ -455,6 +455,41 @@ textarea {
   color: var(--text-dim);
   font-size: 12.5px;
 }
+.auth-form {
+  width: 320px;
+  max-width: 100%;
+}
+.auth-input {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  color: var(--text-strong);
+  font-size: 13px;
+  outline: none;
+}
+.auth-input:focus {
+  border-color: var(--accent);
+}
+.auth-error {
+  margin: 0;
+  color: var(--danger, #dc322f);
+  font-size: 12px;
+}
+.auth-form .btn.primary {
+  width: 100%;
+}
+.auth-switch {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 0;
+}
+.auth-switch:hover {
+  color: var(--text-strong);
+}
 
 /* main / trace (U7) */
 .main {

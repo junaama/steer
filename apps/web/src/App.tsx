@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, type FormEvent } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { Shell } from './components/Shell.js'
 import { Sidebar } from './components/Sidebar.js'
@@ -10,6 +10,7 @@ import { useSteerAuth, type SteerAuth } from './auth/AuthProvider.js'
 import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-fetch.js'
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
 import { createSessionsCollection, createEventsCollection } from './data/electric.js'
+import { decodeSessionRow, decodeEventRow } from './data/decode.js'
 import { buildTrace, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
@@ -26,20 +27,69 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080'
 export function App(): JSX.Element {
   const auth = useSteerAuth()
   if (auth.isLoading) return <div className="placeholder">connecting…</div>
-  if (!auth.isAuthed) return <LoginGate onSignIn={auth.signIn} />
+  if (!auth.isAuthed) return <LoginGate auth={auth} />
   return <AuthedApp auth={auth} />
 }
 
-function LoginGate({ onSignIn }: { onSignIn: () => void }): JSX.Element {
+function LoginGate({ auth }: { auth: SteerAuth }): JSX.Element {
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e: FormEvent): Promise<void> => {
+    e.preventDefault()
+    setError(null)
+    setBusy(true)
+    try {
+      if (mode === 'login') await auth.login(email, password)
+      else await auth.signup(email, password)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authentication failed')
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="placeholder">
-      <div className="ph-card">
+      <form className="ph-card auth-form" onSubmit={submit}>
         <h2>steer</h2>
-        <p>Watch a coding agent work — and steer it live. Sign in to continue.</p>
-        <button className="btn primary" onClick={onSignIn}>
-          Sign in
+        <p>Watch a coding agent work — and steer it live.</p>
+        <input
+          className="auth-input"
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          className="auth-input"
+          type="password"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          placeholder="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          minLength={8}
+          required
+        />
+        {error && <p className="auth-error">{error}</p>}
+        <button className="btn primary" type="submit" disabled={busy}>
+          {busy ? 'Working…' : mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
-      </div>
+        <button
+          className="auth-switch"
+          type="button"
+          onClick={() => {
+            setMode((m) => (m === 'login' ? 'signup' : 'login'))
+            setError(null)
+          }}
+        >
+          {mode === 'login' ? 'Need an account? Sign up' : 'Have an account? Sign in'}
+        </button>
+      </form>
     </div>
   )
 }
@@ -75,7 +125,9 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     delete: (key: string) => void
   }
 
-  const rows = live.data ?? []
+  // Electric delivers snake_case columns; decode to the app's strict camelCase
+  // shape before projecting (raw synced rows otherwise have undefined lastStatus).
+  const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeSessionRow)
   const views: SessionView[] = rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -161,7 +213,8 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
 function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps; write: WriteClient }): JSX.Element {
   const events = useMemo(() => createEventsCollection(deps, session.id), [deps, session.id])
   const live = useLiveQuery((q) => q.from({ e: events })) as unknown as { data?: EventRow[] }
-  const rows = live.data ?? []
+  // Decode Electric's wire format: snake_case keys, stringified seq, jsonb-as-string payload.
+  const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeEventRow)
   const items = buildTrace(rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload })))
 
   const handleAction = (tool: ToolItem, action: InterceptAction): void => {

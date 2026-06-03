@@ -26,6 +26,17 @@ export const TOOL_STATUS_META: Record<ToolStatus, StatusMeta> = {
   error: { label: 'error', color: 'var(--st-error)' },
 }
 
+/** Fallback so an unexpected status degrades to a neutral pill instead of crashing the render. */
+const UNKNOWN_META: StatusMeta = { label: 'unknown', color: 'var(--text-dim)' }
+
+export function sessionStatusMeta(status: string): StatusMeta {
+  return SESSION_STATUS_META[status as SessionStatus] ?? UNKNOWN_META
+}
+
+export function toolStatusMeta(status: string): StatusMeta {
+  return TOOL_STATUS_META[status as ToolStatus] ?? UNKNOWN_META
+}
+
 const TOOL_ICON: Record<string, string> = {
   read_file: 'read',
   read: 'read',
