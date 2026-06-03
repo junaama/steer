@@ -89,6 +89,10 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:8080}
+        VITE_WORKOS_CLIENT_ID: ${VITE_WORKOS_CLIENT_ID:-}
+        VITE_WORKOS_REDIRECT_URI: ${VITE_WORKOS_REDIRECT_URI:-http://localhost:5173/callback}
     environment:
       VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:8080}
       VITE_WORKOS_CLIENT_ID: ${VITE_WORKOS_CLIENT_ID:-}
@@ -97,7 +101,7 @@ services:
       server:
         condition: service_healthy
     ports:
-      - "5173:5173"
+      - "${WEB_PORT:-5173}:5173"
 
   # PORTLESS by design (PRD): connects outbound only to the server + Electric.
   agent:
