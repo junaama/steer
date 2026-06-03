@@ -85,11 +85,13 @@ export async function resolveTool(
           result,
         })
       } else {
+        // Same tool, operator-edited args — mark the result for the audit line.
         const result = await runTool(step.name, payload.newArgs ?? step.args)
         await store.appendEvent(sessionId, 'tool_result', {
           toolCallId: step.toolCallId,
           name: step.name,
           result,
+          edited: true,
         })
       }
       return 'resolved'

@@ -45,7 +45,8 @@ export const eventPayloadSchemas = {
   }),
   tool_started: toolRef,
   tool_stdout_delta: toolRef.extend({ chunk: z.string() }),
-  tool_result: toolRef.extend({ result: z.string() }),
+  // `edited` marks a result the operator ran with hand-edited args (U9 audit).
+  tool_result: toolRef.extend({ result: z.string(), edited: z.boolean().optional() }),
   tool_cancelled: toolRef.extend({ reason: z.string().optional() }),
   tool_substituted: toolRef.extend({ from: z.string().min(1), result: z.string() }),
   status_changed: z.object({ status: sessionStatusSchema }),

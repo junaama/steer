@@ -16,6 +16,8 @@ export interface ToolItem {
   status: ToolStatus
   result: string | null
   substitutedFrom: string | null
+  /** True when the operator hand-edited the args before this tool ran (U9 audit). */
+  editedArgs?: boolean
   /** For file-writing tools: prior + proposed content (U12 diff). */
   before?: string
   after?: string
@@ -79,7 +81,12 @@ export function buildTrace(events: readonly RawEvent[], task?: string | null): T
       if (e.type === 'tool_started') {
         tools.set(key, { ...prev, status: 'running' })
       } else if (e.type === 'tool_result') {
-        tools.set(key, { ...prev, status: 'done', result: String(e.payload.result ?? '') })
+        tools.set(key, {
+          ...prev,
+          status: 'done',
+          result: String(e.payload.result ?? ''),
+          ...(e.payload.edited === true ? { editedArgs: true } : {}),
+        })
       } else if (e.type === 'tool_cancelled') {
         tools.set(key, { ...prev, status: 'cancelled', result: String(e.payload.reason ?? 'cancelled') })
       } else if (e.type === 'tool_substituted') {

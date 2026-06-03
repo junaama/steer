@@ -33,6 +33,22 @@ describe('event payloads', () => {
   it('rejects a tool_result without a result string', () => {
     expect(() => parseEventPayload('tool_result', { toolCallId: 'tc1', name: 'grep' })).toThrow()
   })
+
+  it('round-trips a tool_result carrying the edited audit flag', () => {
+    const p = { toolCallId: 'tc1', name: 'read_file', result: 'contents', edited: true }
+    expect(parseEventPayload('tool_result', p)).toEqual(p)
+  })
+
+  it('treats edited as optional on tool_result', () => {
+    const p = { toolCallId: 'tc1', name: 'grep', result: 'm' }
+    expect(parseEventPayload('tool_result', p)).toEqual(p)
+  })
+
+  it('rejects a non-boolean edited flag', () => {
+    expect(() =>
+      parseEventPayload('tool_result', { toolCallId: 'tc1', name: 'grep', result: 'm', edited: 'yes' }),
+    ).toThrow()
+  })
 })
 
 describe('control payloads', () => {

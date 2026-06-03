@@ -30,6 +30,8 @@ export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactN
         </div>
       )}
 
+      {tool.editedArgs && <div className="audit">operator edited arguments before running</div>}
+
       <div className="tc-body">
         <div className="tc-section">
           <div className="tc-label">Arguments</div>

@@ -126,14 +126,16 @@ describe('U9 override engine + audit', () => {
     expect(p.result).toContain('hello')
   })
 
-  it('runs the tool with edited args', async () => {
+  it('runs the tool with edited args and marks the result edited for audit', async () => {
     const id = await newSession()
     await addControl(id, 'override', { toolCallId: 'tc1', newArgs: { path: 'a.txt' } })
     const step: ToolStep = { toolCallId: 'tc1', name: 'read_file', args: { path: 'nonexistent.txt' } }
     await resolveTool(store, id, step, { ...base, workspaceRoot: workspace })
     const events = await store.listEvents(id)
     expect(events.map((e) => e.type)).toEqual(['tool_result'])
-    expect((events[0]!.payload as { result: string }).result).toContain('hello')
+    const payload = events[0]!.payload as { result: string; edited?: boolean }
+    expect(payload.result).toContain('hello')
+    expect(payload.edited).toBe(true)
   })
 })
 

@@ -50,6 +50,16 @@ describe('ToolCard', () => {
     expect(screen.getByText(/operator substituted/)).toBeInTheDocument()
   })
 
+  it('shows the edited-arguments audit line when editedArgs is set', () => {
+    render(<ToolCard tool={tool({ name: 'read_file', status: 'done', result: 'r', editedArgs: true })} />)
+    expect(screen.getByText('operator edited arguments before running')).toBeInTheDocument()
+  })
+
+  it('omits the edited-arguments audit line by default', () => {
+    render(<ToolCard tool={tool({ name: 'grep', status: 'done', result: 'r' })} />)
+    expect(screen.queryByText('operator edited arguments before running')).not.toBeInTheDocument()
+  })
+
   it('handles a tool with no args', () => {
     render(<ToolCard tool={tool({ name: 'list_dir', status: 'running', args: {} })} />)
     expect(screen.getByText('list_dir')).toBeInTheDocument()

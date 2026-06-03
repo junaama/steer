@@ -83,6 +83,24 @@ describe('buildTrace', () => {
     expect(tool.result).toBe('file contents')
   })
 
+  it('flags editedArgs when the terminal tool_result carries edited', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'read_file', kind: 'read-only', args: { path: 'a' } }),
+      ev(1, 'tool_result', { toolCallId: 'tc1', name: 'read_file', result: 'contents', edited: true }),
+    ])
+    const tool = items[0] as ToolItem
+    expect(tool.status).toBe('done')
+    expect(tool.editedArgs).toBe(true)
+  })
+
+  it('leaves editedArgs unset for a normal tool_result', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),
+      ev(1, 'tool_result', { toolCallId: 'tc1', name: 'grep', result: 'm' }),
+    ])
+    expect((items[0] as ToolItem).editedArgs).toBeUndefined()
+  })
+
   it('marks a cancelled tool', () => {
     const items = buildTrace([
       ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),
