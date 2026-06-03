@@ -1,12 +1,25 @@
-// Agent daemon entrypoint. PORTLESS by design — connects outbound only.
-// Populated in U5: subscribe to sessions + controls via Electric, run the
-// Vercel AI SDK loop, append event rows through the server's write API, halt
-// on interrupt control rows, and resume from MAX(seq) on restart.
+import { createPool, createDb } from './db.js'
+import { pollAndRun } from './daemon.js'
 
-const serverUrl = process.env.SERVER_URL ?? 'http://server:8080'
+// Agent daemon — PORTLESS, outbound only. Polls Postgres for sessions to run and
+// streams events back to the synced event log.
+const pool = createPool()
+const db = createDb(pool)
+const active = new Set<string>()
 
 // eslint-disable-next-line no-console
-console.log(`[agent] daemon up (outbound only) — will reach ${serverUrl}; loop arrives in U5`)
+console.log('[agent] daemon up (outbound only)')
 
-// Keep the process resident so the container stays alive.
-setInterval(() => {}, 1 << 30)
+async function loop(): Promise<void> {
+  for (;;) {
+    try {
+      await pollAndRun(db, active)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[agent] poll error', err)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
+}
+
+void loop()

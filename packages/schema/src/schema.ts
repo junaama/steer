@@ -52,6 +52,8 @@ export const sessions = pgTable(
     id: text('id').primaryKey(),
     userId: text('user_id').notNull(),
     title: text('title').notNull(),
+    // The initial task/prompt the agent runs (null for sessions created without one).
+    task: text('task'),
     lastStatus: text('last_status').$type<SessionStatus>().notNull().default('idle'),
     model: text('model').notNull().default('sonnet'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

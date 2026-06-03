@@ -8,6 +8,13 @@
       "when": 1780464958154,
       "tag": "0000_dear_echo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780465557431,
+      "tag": "0001_skinny_diamondback",
+      "breakpoints": true
     }
   ]
 }

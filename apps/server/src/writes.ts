@@ -50,9 +50,23 @@ async function applyWrite(
 ): Promise<void> {
   if (collection === 'sessions') {
     if (op === 'insert') {
-      const p = z.object({ id: z.string().min(1), title: z.string().min(1), model: z.string().optional() }).parse(payload)
+      const p = z
+        .object({
+          id: z.string().min(1),
+          title: z.string().min(1),
+          task: z.string().optional(),
+          model: z.string().optional(),
+        })
+        .parse(payload)
       // user_id is injected server-side; any client-supplied user_id is ignored.
-      await tx.insert(sessions).values({ id: p.id, userId, title: p.title, model: p.model ?? 'sonnet' })
+      await tx.insert(sessions).values({
+        id: p.id,
+        userId,
+        title: p.title,
+        task: p.task ?? null,
+        model: p.model ?? 'sonnet',
+        lastStatus: 'starting',
+      })
       return
     }
     if (op === 'update') {
