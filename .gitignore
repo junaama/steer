@@ -29,3 +29,6 @@ npm-debug.log*
 # misc
 hlyr.zip
 .env.local
+
+# local dogfooding artifacts (screenshots, videos)
+dogfood-output/

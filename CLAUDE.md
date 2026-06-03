@@ -1,3 +1,6 @@
+# CLAUDE.md
+
+
 Stack: Typescript, Vite, React, TanStack, Self-Rolled Auth, Vercel AI SDK
 
 Docs: read repo docs before coding; update docs/changelog for user-visible behavior changes.
