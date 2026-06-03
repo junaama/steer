@@ -32,3 +32,6 @@ hlyr.zip
 
 # local dogfooding artifacts (screenshots, videos)
 dogfood-output/
+
+# local compound-engineering consent/config (machine-specific)
+.compound-engineering/config.local.yaml
