@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { classifyTool } from '@steer/schema'
 import type { AgentStore, StoredEvent } from './store.js'
 import type { ToolFn } from './tools/index.js'
+import { applyEdits, type Edit } from './tools/edit.js'
 import { resolveTool } from './intercept.js'
 
 async function readBefore(root: string, path: string): Promise<string> {
@@ -11,6 +12,41 @@ async function readBefore(root: string, path: string): Promise<string> {
   } catch {
     return ''
   }
+}
+
+const FILE_MUTATING_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit'])
+
+async function fileMutationPreview(root: string, name: string, args: Record<string, unknown>): Promise<
+  { before: string; after: string } | undefined
+> {
+  if (!FILE_MUTATING_TOOLS.has(name) || typeof args.path !== 'string') return undefined
+  const before = await readBefore(root, args.path)
+  try {
+    if (name === 'write_file') return { before, after: String(args.content ?? '') }
+    if (name === 'edit_file' && typeof args.old_string === 'string' && typeof args.new_string === 'string') {
+      return { before, after: applyEdits(before, [{ old_string: args.old_string, new_string: args.new_string }]) }
+    }
+    if (name === 'multi_edit' && Array.isArray(args.edits)) {
+      const edits = args.edits.map((edit): Edit | undefined => {
+        if (
+          typeof edit === 'object' &&
+          edit !== null &&
+          'old_string' in edit &&
+          'new_string' in edit &&
+          typeof edit.old_string === 'string' &&
+          typeof edit.new_string === 'string'
+        ) {
+          return { old_string: edit.old_string, new_string: edit.new_string }
+        }
+        return undefined
+      })
+      if (!edits.every((edit): edit is Edit => edit !== undefined)) return undefined
+      return { before, after: applyEdits(before, edits) }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 /** One scripted step the model driver yields. Mirrors the real LLM's turn shapes. */
@@ -122,11 +158,9 @@ export async function runSession(
       kind,
       args: step.args,
     }
-    if (step.name === 'write_file' && typeof step.args.path === 'string') {
-      // Emit before/after so the UI can render a diff (U12).
-      proposed.before = await readBefore(options.workspaceRoot, step.args.path)
-      proposed.after = String(step.args.content ?? '')
-    }
+    // Emit before/after for file-mutating tools so the UI can render a diff.
+    const preview = await fileMutationPreview(options.workspaceRoot, step.name, step.args)
+    if (preview) Object.assign(proposed, preview)
     await store.appendEvent(sessionId, 'tool_proposed', proposed)
     // A side-effecting tool blocks at the approval gate — flip the session pill to
     // AWAITING APPROVAL while it waits so the operator sees it needs a decision

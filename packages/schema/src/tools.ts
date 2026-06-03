@@ -17,6 +17,11 @@ export const toolArgSchemas = {
   glob: z.object({ pattern: z.string().min(1) }),
   web_fetch: z.object({ url: z.string().url() }),
   write_file: z.object({ path: z.string().min(1), content: z.string() }),
+  edit_file: z.object({ path: z.string().min(1), old_string: z.string().min(1), new_string: z.string() }),
+  multi_edit: z.object({
+    path: z.string().min(1),
+    edits: z.array(z.object({ old_string: z.string().min(1), new_string: z.string() })),
+  }),
   bash: z.object({ command: z.string().min(1) }),
 } as const
 
@@ -30,6 +35,8 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   glob: 'read-only',
   web_fetch: 'read-only',
   write_file: 'side-effecting',
+  edit_file: 'side-effecting',
+  multi_edit: 'side-effecting',
   bash: 'side-effecting',
 }
 

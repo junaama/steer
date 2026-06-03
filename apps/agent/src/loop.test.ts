@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
-import { mkdtemp, writeFile, access } from 'node:fs/promises'
+import { mkdtemp, writeFile, access, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -157,6 +157,112 @@ describe('runSession', () => {
     expect(proposed.before).toBe('') // new file
     expect(proposed.after).toBe('l1\nl2')
     expect(events.some((e) => e.type === 'tool_result')).toBe(true)
+  })
+
+  it('emits an edit_file proposal with before/after matching the approved edit', async () => {
+    const id = await newSession()
+    await writeFile(join(workspace, 'edit-proposal.txt'), 'alpha\nbeta\ngamma\n')
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
+    const script: Step[] = [
+      {
+        t: 'tool',
+        toolCallId: 'tc1',
+        name: 'edit_file',
+        args: { path: 'edit-proposal.txt', old_string: 'beta', new_string: 'delta' },
+      },
+    ]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBe('alpha\nbeta\ngamma\n')
+    expect(proposed.after).toBe('alpha\ndelta\ngamma\n')
+    expect(await readFile(join(workspace, 'edit-proposal.txt'), 'utf8')).toBe('alpha\ndelta\ngamma\n')
+  })
+
+  it('emits a multi_edit proposal with after reflecting all edits', async () => {
+    const id = await newSession()
+    await writeFile(join(workspace, 'multi-proposal.txt'), 'one\ntwo\nthree\n')
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
+    const script: Step[] = [
+      {
+        t: 'tool',
+        toolCallId: 'tc1',
+        name: 'multi_edit',
+        args: {
+          path: 'multi-proposal.txt',
+          edits: [
+            { old_string: 'one', new_string: 'two' },
+            { old_string: 'two\ntwo', new_string: 'double' },
+          ],
+        },
+      },
+    ]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBe('one\ntwo\nthree\n')
+    expect(proposed.after).toBe('double\nthree\n')
+  })
+
+  it('emits a grep proposal without before/after', async () => {
+    const id = await newSession()
+    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'grep', args: { pattern: 'hello', path: 'a.txt' } }]
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBeUndefined()
+    expect(proposed.after).toBeUndefined()
+  })
+
+  it('emits no before/after when an edit_file proposal lacks editable strings', async () => {
+    const id = await newSession()
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
+    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'edit_file', args: { path: 'a.txt' } }]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBeUndefined()
+    expect(proposed.after).toBeUndefined()
+  })
+
+  it('emits no before/after for a malformed multi_edit proposal', async () => {
+    const id = await newSession()
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
+    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'multi_edit', args: { path: 'a.txt', edits: [null] } }]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBeUndefined()
+    expect(proposed.after).toBeUndefined()
+  })
+
+  it('emits no before/after when edit preview cannot match uniquely', async () => {
+    const id = await newSession()
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
+    const script: Step[] = [
+      {
+        t: 'tool',
+        toolCallId: 'tc1',
+        name: 'edit_file',
+        args: { path: 'a.txt', old_string: 'missing', new_string: 'replacement' },
+      },
+    ]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
+    expect(proposed.before).toBeUndefined()
+    expect(proposed.after).toBeUndefined()
   })
 
   it('flips to awaiting-approval at a side-effecting gate, then back to running, then completed', async () => {

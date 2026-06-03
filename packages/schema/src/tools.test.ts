@@ -17,7 +17,7 @@ describe('tool policy', () => {
   })
 
   it('classifies side-effecting tools as side-effecting', () => {
-    for (const name of ['write_file', 'bash'] as const) {
+    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash'] as const) {
       expect(classifyTool(name)).toBe('side-effecting')
       expect(isReadOnly(name)).toBe(false)
     }
@@ -33,6 +33,8 @@ describe('tool policy', () => {
       ['glob', 'grep', 'list_dir', 'read_file', 'web_fetch'].sort(),
     )
     expect(READ_ONLY_TOOLS).not.toContain('write_file')
+    expect(READ_ONLY_TOOLS).not.toContain('edit_file')
+    expect(READ_ONLY_TOOLS).not.toContain('multi_edit')
     expect(READ_ONLY_TOOLS).not.toContain('bash')
   })
 
@@ -57,11 +59,33 @@ describe('validateToolArgs', () => {
     expect(validateToolArgs('web_fetch', { url: 'https://example.com' })).toEqual({
       url: 'https://example.com',
     })
+    expect(validateToolArgs('edit_file', { path: 'src/a.ts', old_string: 'old', new_string: 'new' })).toEqual({
+      path: 'src/a.ts',
+      old_string: 'old',
+      new_string: 'new',
+    })
+    expect(
+      validateToolArgs('multi_edit', {
+        path: 'src/a.ts',
+        edits: [
+          { old_string: 'old', new_string: 'new' },
+          { old_string: 'new', new_string: 'newer' },
+        ],
+      }),
+    ).toEqual({
+      path: 'src/a.ts',
+      edits: [
+        { old_string: 'old', new_string: 'new' },
+        { old_string: 'new', new_string: 'newer' },
+      ],
+    })
   })
 
   it('rejects malformed args', () => {
     expect(() => validateToolArgs('grep', { pattern: '' })).toThrow()
     expect(() => validateToolArgs('web_fetch', { url: 'not-a-url' })).toThrow()
     expect(() => validateToolArgs('write_file', { path: 'x' })).toThrow() // missing content
+    expect(() => validateToolArgs('edit_file', { path: 'x', old_string: 'old' })).toThrow()
+    expect(() => validateToolArgs('multi_edit', { path: 'x', edits: [{ old_string: 'old' }] })).toThrow()
   })
 })

@@ -2,6 +2,7 @@ import { readFile, readdir, writeFile, stat } from 'node:fs/promises'
 import { resolve, relative, isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { validateToolArgs } from '@steer/schema'
+import { edit_file, multi_edit } from './edit.js'
 
 export interface ToolContext {
   workspaceRoot: string
@@ -93,5 +94,9 @@ export const tools: Record<string, ToolFn> = {
   glob,
   web_fetch,
   write_file,
+  edit_file,
+  multi_edit,
   bash,
 }
+
+export { edit_file, multi_edit }
