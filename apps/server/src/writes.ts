@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
-import { sql, eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   sessions,
@@ -13,33 +13,14 @@ import {
   parseControlPayload,
 } from '@steer/schema'
 import type { Db } from './db.js'
+import { type Tx, WriteError, assertOwns, captureTxid } from './session-tx.js'
 import './types.js'
-
-/** Authorization/validation failure surfaced with an HTTP status. */
-class WriteError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message)
-  }
-}
 
 const bodySchema = z.object({
   collection: z.enum(['sessions', 'events', 'controls']),
   op: z.enum(['insert', 'update', 'delete']),
   payload: z.record(z.unknown()),
 })
-
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
-
-async function assertOwns(tx: Tx, userId: string, sessionId: string): Promise<void> {
-  const rows = await tx
-    .select({ id: sessions.id })
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
-  if (rows.length === 0) throw new WriteError(403, 'forbidden: not your session')
-}
 
 async function applyWrite(
   tx: Tx,
@@ -140,10 +121,7 @@ export function registerWrites(app: FastifyInstance, db: Db): void {
     try {
       const txid = await db.transaction(async (tx) => {
         await applyWrite(tx, req.userId, collection, op, payload)
-        // Capture the txid INSIDE the same transaction, AFTER the write, so it
-        // matches the row's xid in the Electric stream (awaitTxId reconciliation).
-        const res = await tx.execute(sql`select pg_current_xact_id()::text as txid`)
-        return (res.rows[0] as { txid: string }).txid
+        return captureTxid(tx)
       })
       return reply.send({ txid })
     } catch (err) {
