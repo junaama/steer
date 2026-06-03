@@ -5,6 +5,7 @@ import { toolArgSchemas } from '@steer/schema'
 import type { ModelDriver, Step } from './loop.js'
 import type { StoredEvent } from './store.js'
 import { buildContext } from './context.js'
+import { decideStep } from './decide.js'
 import { resolveProvider, resolveModelId, type Provider } from './provider.js'
 
 const toolSet: ToolSet = Object.fromEntries(
@@ -39,19 +40,12 @@ export function createModelDriver(opts: { model: string; task: string | null }):
         maxSteps: 1,
       })
       const call = result.toolCalls[0]
-      if (call) {
-        return {
-          t: 'tool',
-          toolCallId: call.toolCallId,
-          name: call.toolName,
-          args: call.args as Record<string, unknown>,
-        }
-      }
-      const text = result.text.trim()
-      const lastMessage = [...events].reverse().find((e) => e.type === 'message')
-      const lastText = lastMessage ? (lastMessage.payload as { text: string }).text : null
-      if (text.length > 0 && text !== lastText) return { t: 'say', text }
-      return { t: 'complete' }
+      return decideStep(events, {
+        toolCall: call
+          ? { toolCallId: call.toolCallId, name: call.toolName, args: call.args as Record<string, unknown> }
+          : undefined,
+        text: result.text,
+      })
     },
   }
 }
