@@ -7,7 +7,7 @@ last_updated: 2026-06-02
 
 ## Target problem
 
-The reviewer (Kyle) has to decide, in a few minutes, whether this candidate
+The reviewer has to decide, in a few minutes, whether this candidate
 genuinely understands sync-driven architecture and can honor a dense set of hard
 constraints — or whether they cut a corner that disqualifies the whole submission.
 That's hard to verify because a build can *look* live and polished while faking sync
@@ -25,7 +25,7 @@ works on the reviewer's first try.
 
 ## Who it's for
 
-**Primary:** Kyle Mistele / the reviewer — they're hiring this submission to quickly and
+**Primary:** the reviewer — they're hiring this submission to quickly and
 confidently verify that the candidate can build a correct sync-driven system and follow
 exacting constraints, without having to debug the environment themselves.
 
