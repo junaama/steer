@@ -24,12 +24,14 @@ describe('createWriteClient', () => {
     const fetchImpl = okFetch()
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
     await client.renameSession('s1', 'New title')
+    await client.setStatus('s1', 'starting')
     await client.deleteSession('s1')
     await client.sendControl('s1', 'interrupt', {})
     const bodies = fetchImpl.mock.calls.map((c) => JSON.parse(c[1]!.body as string))
     expect(bodies[0]).toEqual({ collection: 'sessions', op: 'update', payload: { id: 's1', title: 'New title' } })
-    expect(bodies[1]).toEqual({ collection: 'sessions', op: 'delete', payload: { id: 's1' } })
-    expect(bodies[2]).toEqual({ collection: 'controls', op: 'insert', payload: { sessionId: 's1', type: 'interrupt', payload: {} } })
+    expect(bodies[1]).toEqual({ collection: 'sessions', op: 'update', payload: { id: 's1', lastStatus: 'starting' } })
+    expect(bodies[2]).toEqual({ collection: 'sessions', op: 'delete', payload: { id: 's1' } })
+    expect(bodies[3]).toEqual({ collection: 'controls', op: 'insert', payload: { sessionId: 's1', type: 'interrupt', payload: {} } })
   })
 
   it('throws on a non-2xx response', async () => {

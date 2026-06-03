@@ -1,4 +1,4 @@
-import type { ControlType } from '@steer/schema'
+import type { ControlType, SessionStatus } from '@steer/schema'
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -31,6 +31,7 @@ export function createWriteClient(opts: { serverUrl: string; fetchImpl: FetchLik
     createSession: (s: { id: string; title: string; task?: string; model?: string }) =>
       write('sessions', 'insert', s),
     renameSession: (id: string, title: string) => write('sessions', 'update', { id, title }),
+    setStatus: (id: string, lastStatus: SessionStatus) => write('sessions', 'update', { id, lastStatus }),
     deleteSession: (id: string) => write('sessions', 'delete', { id }),
     sendControl: (sessionId: string, type: ControlType, payload: Record<string, unknown>) =>
       write('controls', 'insert', { sessionId, type, payload }),
