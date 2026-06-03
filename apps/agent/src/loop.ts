@@ -57,6 +57,8 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Control-poll interval for the approval gate + live cancel (ms). */
   pollMs?: number
+  /** Safety ceiling on completed steps before a run is force-stopped (default 40). */
+  maxSteps?: number
 }
 
 /**
@@ -71,6 +73,7 @@ export async function runSession(
   options: RunOptions,
 ): Promise<void> {
   await store.setStatus(sessionId, 'running')
+  const maxSteps = options.maxSteps ?? 40
 
   for (;;) {
     // Operator interrupt halts at the step boundary (control-plane-via-data-plane).
@@ -87,6 +90,15 @@ export async function runSession(
 
     const events = await store.listEvents(sessionId)
     const cursor = completedSteps(events)
+    // Safety ceiling: stop a model that loops without finishing (e.g. repeating a
+    // tool that yields nothing) instead of burning unbounded inference calls.
+    if (cursor >= maxSteps) {
+      await store.appendEvent(sessionId, 'message', {
+        text: `Stopped after the ${maxSteps}-step safety limit without finishing. Narrow the task or raise STEER_MAX_STEPS.`,
+      })
+      await store.setStatus(sessionId, 'error')
+      return
+    }
     const step = await driver.next(events, cursor)
 
     if (step.t === 'complete') {

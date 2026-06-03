@@ -1,34 +1,36 @@
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { inArray } from 'drizzle-orm'
-import { sessions } from '@steer/schema'
 import type { Db } from './db.js'
 import { createDbStore } from './store.js'
 import { runSession } from './loop.js'
 import { tools } from './tools/index.js'
 import { createModelDriver } from './model.js'
+import { resolveWorkspaceRoot } from './workspace.js'
+import type { SessionIntent } from './intake.js'
 
 /**
- * Pick up sessions that need work and run them. 'starting' is a fresh task;
- * 'running' on daemon boot is a crashed run to resume (crash-only resume reads
- * the event log). `active` guards against double-running within this process.
+ * Build the callback the Electric intake invokes for each runnable session.
+ * `active` guards against double-running within this process: the sessions
+ * shape re-delivers a row on every status change, and 'running' rows replay in
+ * the reconnect snapshot (crash-only resume) — both must be no-ops if the run
+ * is already in flight here.
  */
-export async function pollAndRun(db: Db, active: Set<string>): Promise<void> {
+export function createRunner(db: Db, active: Set<string>): (intent: SessionIntent) => void {
   const store = createDbStore(db)
-  const rows = await db.select().from(sessions).where(inArray(sessions.lastStatus, ['starting', 'running']))
-  for (const s of rows) {
-    if (active.has(s.id)) continue
-    active.add(s.id)
+  return (intent) => {
+    if (active.has(intent.id)) return
+    active.add(intent.id)
     void (async () => {
       try {
-        const workspaceRoot = await mkdtemp(join(tmpdir(), `steer-${s.id}-`))
-        const driver = createModelDriver({ model: s.model, task: s.task })
-        await runSession(store, driver, s.id, { workspaceRoot, tools })
+        // The coding agent runs in the daemon's own environment (cwd), so it
+        // operates on the real files where it was launched (PRD: "runs the
+        // sessions on the host it's running on").
+        const workspaceRoot = resolveWorkspaceRoot(process.env)
+        const maxSteps = Number(process.env.STEER_MAX_STEPS) || 40
+        const driver = createModelDriver({ model: intent.model, task: intent.task })
+        await runSession(store, driver, intent.id, { workspaceRoot, tools, maxSteps })
       } catch {
-        await store.setStatus(s.id, 'error')
+        await store.setStatus(intent.id, 'error')
       } finally {
-        active.delete(s.id)
+        active.delete(intent.id)
       }
     })()
   }

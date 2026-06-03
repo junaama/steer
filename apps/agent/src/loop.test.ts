@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore } from './store.js'
-import { runSession, ScriptedModel, completedSteps, type Step } from './loop.js'
+import { runSession, ScriptedModel, completedSteps, type Step, type ModelDriver } from './loop.js'
 import { tools, type ToolFn } from './tools/index.js'
 
 const TEST_URL =
@@ -70,6 +70,20 @@ describe('runSession', () => {
     const toolResult = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
     expect(toolResult.result).toContain('hello')
     expect(await status(id)).toBe('completed')
+  })
+
+  it('force-stops a non-completing model at the step cap (no runaway)', async () => {
+    const id = await newSession()
+    // A model that never returns `complete` — mirrors the empty-dir loop that
+    // produced dozens of identical tool calls.
+    const looping: ModelDriver = { next: async () => ({ t: 'say', text: 'still going' }) }
+    await runSession(store, looping, id, { workspaceRoot: workspace, tools, maxSteps: 3 })
+
+    const events = await store.listEvents(id)
+    const messages = events.filter((e) => e.type === 'message')
+    expect(messages).toHaveLength(4) // 3 model steps + the cap notice
+    expect((messages[3]!.payload as { text: string }).text).toContain('safety limit')
+    expect(await status(id)).toBe('error')
   })
 
   it('halts on an interrupt control row and records it (control-plane-via-data-plane)', async () => {

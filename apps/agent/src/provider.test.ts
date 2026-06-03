@@ -35,4 +35,11 @@ describe('resolveModelId', () => {
     expect(resolveModelId('openai', 'haiku', { OPENAI_MODEL: 'gpt-4.1' })).toBe('gpt-4.1')
     expect(resolveModelId('anthropic', 'sonnet', { ANTHROPIC_MODEL: 'claude-x' })).toBe('claude-x')
   })
+
+  it('treats an empty-string override as unset (docker-compose injects "" for unset vars)', () => {
+    // Regression: `${OPENAI_MODEL:-}` becomes "" in the container; an empty model id
+    // made the SDK throw "you must provide a model parameter" and every session errored.
+    expect(resolveModelId('openai', 'sonnet', { OPENAI_MODEL: '' })).toBe('gpt-4o')
+    expect(resolveModelId('anthropic', 'opus', { ANTHROPIC_MODEL: '' })).toBe('claude-3-opus-latest')
+  })
 })

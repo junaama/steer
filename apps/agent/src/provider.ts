@@ -40,8 +40,10 @@ export function resolveModelId(
   tier: string,
   env: { OPENAI_MODEL?: string; ANTHROPIC_MODEL?: string } = {},
 ): string {
+  // `||` (not `??`): docker-compose injects `OPENAI_MODEL: ${OPENAI_MODEL:-}` as an
+  // EMPTY STRING when unset, and an empty model id makes the SDK throw. Treat "" as absent.
   if (provider === 'openai') {
-    return env.OPENAI_MODEL ?? OPENAI_MODELS[tier] ?? 'gpt-4o-mini'
+    return env.OPENAI_MODEL || OPENAI_MODELS[tier] || 'gpt-4o-mini'
   }
-  return env.ANTHROPIC_MODEL ?? ANTHROPIC_MODELS[tier] ?? 'claude-3-5-sonnet-latest'
+  return env.ANTHROPIC_MODEL || ANTHROPIC_MODELS[tier] || 'claude-3-5-sonnet-latest'
 }
