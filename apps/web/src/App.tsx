@@ -3,13 +3,14 @@ import { useLiveQuery } from '@tanstack/react-db'
 import { Shell } from './components/Shell.js'
 import { Sidebar } from './components/Sidebar.js'
 import { SessionDetail } from './components/SessionDetail.js'
+import { InterceptControls, type InterceptAction } from './components/InterceptControls.js'
 import { NewSessionModal } from './components/NewSessionModal.js'
 import { ConfirmModal } from './components/ConfirmModal.js'
 import { useSteerAuth, type SteerAuth } from './auth/AuthProvider.js'
 import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-fetch.js'
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
 import { createSessionsCollection, createEventsCollection } from './data/electric.js'
-import { buildTrace } from './lib/trace.js'
+import { buildTrace, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
 import type { SessionRow, EventRow } from './data/types.js'
@@ -162,6 +163,16 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
   const live = useLiveQuery((q) => q.from({ e: events })) as unknown as { data?: EventRow[] }
   const rows = live.data ?? []
   const items = buildTrace(rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload })))
+
+  const handleAction = (tool: ToolItem, action: InterceptAction): void => {
+    const id = tool.toolCallId
+    if (action.type === 'approve') void write.sendControl(session.id, 'approve', { toolCallId: id })
+    else if (action.type === 'reject') void write.sendControl(session.id, 'reject', { toolCallId: id })
+    else if (action.type === 'swap')
+      void write.sendControl(session.id, 'override', { toolCallId: id, newTool: action.newTool })
+    else void write.sendControl(session.id, 'override', { toolCallId: id, newArgs: action.newArgs })
+  }
+
   return (
     <SessionDetail
       title={session.title}
@@ -170,6 +181,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       items={items}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
       onContinue={() => void write.setStatus(session.id, 'starting')}
+      renderToolControls={(tool) => <InterceptControls tool={tool} onAction={(a) => handleAction(tool, a)} />}
     />
   )
 }

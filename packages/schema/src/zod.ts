@@ -36,6 +36,9 @@ export const eventPayloadSchemas = {
     name: z.string().min(1),
     kind: toolKindSchema,
     args: z.record(z.unknown()),
+    // For file-writing tools: prior + proposed content so the UI renders a diff.
+    before: z.string().optional(),
+    after: z.string().optional(),
   }),
   tool_started: toolRef,
   tool_stdout_delta: toolRef.extend({ chunk: z.string() }),

@@ -16,6 +16,9 @@ export interface ToolItem {
   status: ToolStatus
   result: string | null
   substitutedFrom: string | null
+  /** For file-writing tools: prior + proposed content (U12 diff). */
+  before?: string
+  after?: string
 }
 
 export type TraceItem = MessageItem | ToolItem
@@ -62,6 +65,8 @@ export function buildTrace(events: readonly RawEvent[]): TraceItem[] {
         status: toolKind === 'side-effecting' ? 'pending' : 'running',
         result: null,
         substitutedFrom: null,
+        ...(typeof e.payload.before === 'string' ? { before: e.payload.before } : {}),
+        ...(typeof e.payload.after === 'string' ? { after: e.payload.after } : {}),
       })
     } else {
       const prev = tools.get(key)

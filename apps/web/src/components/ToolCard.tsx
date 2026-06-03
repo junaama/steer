@@ -1,6 +1,8 @@
 import { Fragment, type ReactNode } from 'react'
 import type { ToolItem } from '../lib/trace.js'
+import { computeDiff } from '../lib/diff.js'
 import { StatBadge } from './StatBadge.js'
+import { DiffView } from './DiffView.js'
 
 function argSummary(args: Record<string, unknown>): string {
   const keys = Object.keys(args)
@@ -40,9 +42,15 @@ export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactN
             ))}
           </div>
         </div>
+        {tool.after !== undefined && (
+          <div className="tc-section">
+            <div className="tc-label">Proposed change</div>
+            <DiffView file={String(tool.args.path ?? 'file')} diff={computeDiff(tool.before ?? '', tool.after)} />
+          </div>
+        )}
         {tool.result !== null && (
           <div className="tc-section">
-            <div className="tc-label">Result</div>
+            <div className="tc-label">{tool.after !== undefined ? 'Outcome' : 'Result'}</div>
             <div className="result-block">{tool.result}</div>
           </div>
         )}

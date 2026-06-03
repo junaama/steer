@@ -1,7 +1,17 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { classifyTool } from '@steer/schema'
 import type { AgentStore, StoredEvent } from './store.js'
 import type { ToolFn } from './tools/index.js'
 import { resolveTool } from './intercept.js'
+
+async function readBefore(root: string, path: string): Promise<string> {
+  try {
+    return await readFile(join(root, path), 'utf8')
+  } catch {
+    return ''
+  }
+}
 
 /** One scripted step the model driver yields. Mirrors the real LLM's turn shapes. */
 export type Step =
@@ -93,12 +103,18 @@ export async function runSession(
     }
 
     // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
-    await store.appendEvent(sessionId, 'tool_proposed', {
+    const proposed: Record<string, unknown> = {
       toolCallId: step.toolCallId,
       name: step.name,
       kind: classifyTool(step.name),
       args: step.args,
-    })
+    }
+    if (step.name === 'write_file' && typeof step.args.path === 'string') {
+      // Emit before/after so the UI can render a diff (U12).
+      proposed.before = await readBefore(options.workspaceRoot, step.args.path)
+      proposed.after = String(step.args.content ?? '')
+    }
+    await store.appendEvent(sessionId, 'tool_proposed', proposed)
     const outcome = await resolveTool(store, sessionId, step, {
       tools: options.tools,
       workspaceRoot: options.workspaceRoot,
