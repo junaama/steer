@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Convenience launcher so `./steer login` and `./steer "fix the bug"` work with
+# no build step. Runs the CLI through tsx from the @steer/cli package.
+#
+# For a global `steer` on your PATH:
+#   pnpm --filter @steer/cli build && pnpm --filter @steer/cli link --global
+DIR="$(cd "$(dirname "$0")/apps/cli" && pwd)"
+exec pnpm --dir "$DIR" exec tsx src/main.ts "$@"

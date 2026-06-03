@@ -14,6 +14,7 @@
     "test:coverage": "pnpm -r --workspace-concurrency=1 test:coverage",
     "migrate": "pnpm --filter @steer/server migrate",
     "seed": "pnpm --filter @steer/server seed",
+    "steer": "pnpm --filter @steer/cli steer",
     "up": "docker compose up --build"
   }
 }
