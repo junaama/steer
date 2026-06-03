@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
-import { sessions, events } from '@steer/schema'
+import { sessions, events, users } from '@steer/schema'
 import { createDb, type Db } from './db.js'
-import { seedDemo } from './seed-demo.js'
+import { seedDemo, ensureUser } from './seed-demo.js'
 
 const TEST_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
@@ -27,7 +27,7 @@ afterAll(async () => {
   await pool.end()
 })
 beforeEach(async () => {
-  await pool.query('TRUNCATE sessions CASCADE;')
+  await pool.query('TRUNCATE sessions CASCADE; TRUNCATE users CASCADE;')
 })
 
 describe('seedDemo', () => {
@@ -54,5 +54,30 @@ describe('seedDemo', () => {
     await seedDemo(db, 'u2')
     expect(await sessionCount('u1')).toBe(2)
     expect(await sessionCount('u2')).toBe(2)
+  })
+})
+
+describe('ensureUser', () => {
+  async function hashOf(email: string): Promise<string | undefined> {
+    const r = await db.select({ h: users.passwordHash }).from(users).where(eq(users.email, email))
+    return r[0]?.h
+  }
+
+  it('creates a new login-able user and returns its id', async () => {
+    const id = await ensureUser(db, 'Demo@Steer.dev', 'steerdemo123')
+    expect(id).toBeTruthy()
+    // Email is normalized to lowercase.
+    expect(await hashOf('demo@steer.dev')).toBeTruthy()
+  })
+
+  it('is idempotent on email: returns the same id and refreshes the password', async () => {
+    const first = await ensureUser(db, 'demo@steer.dev', 'steerdemo123')
+    const before = await hashOf('demo@steer.dev')
+    const second = await ensureUser(db, 'demo@steer.dev', 'a-new-password-456')
+    expect(second).toBe(first)
+    const after = await hashOf('demo@steer.dev')
+    expect(after).not.toBe(before)
+    const rows = await db.select({ id: users.id }).from(users)
+    expect(rows).toHaveLength(1)
   })
 })

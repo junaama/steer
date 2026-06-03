@@ -37,8 +37,8 @@ export function registerAuth(
 }
 
 /**
- * Placeholder verifier used until U4 wires the real WorkOS JWKS verification.
- * Rejects everything, so the server boots but protected routes 401 until then.
+ * A verifier that rejects every token. Handy as a safe default and in tests
+ * that need protected routes to 401 without standing up real auth.
  */
 export function createPlaceholderVerifier(): AuthVerifier {
   return { verify: async () => null }

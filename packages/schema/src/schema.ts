@@ -91,3 +91,32 @@ export const controls = pgTable(
   },
   (t) => [index('controls_session_idx').on(t.sessionId)],
 )
+
+/**
+ * Auth identity. `users` + `auth_sessions` back the self-hosted session auth
+ * A high-entropy token is the bearer secret, and only its
+ * SHA-256 hash is ever persisted (as `auth_sessions.id`), so the database never
+ * stores a usable token. These tables are server-only — they are deliberately
+ * NOT in the Electric proxy's synced collection set, so they never reach a
+ * client. `sessions.user_id` (the coding-agent sessions above) holds a
+ * `users.id`, which the JWT/bearer `sub` resolves to and the proxy scopes on.
+ */
+export const users = pgTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const authSessions = pgTable(
+  'auth_sessions',
+  {
+    // SHA-256 hash (hex) of the opaque session token the client holds.
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('auth_sessions_user_idx').on(t.userId)],
+)

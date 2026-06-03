@@ -18,7 +18,6 @@
     "@tanstack/db": "^0.6.7",
     "@tanstack/electric-db-collection": "^0.3.5",
     "@tanstack/react-db": "^0.1.85",
-    "@workos-inc/authkit-react": "^0.16.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

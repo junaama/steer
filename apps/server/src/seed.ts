@@ -1,20 +1,23 @@
 import { createPool, createDb } from './db.js'
-import { seedDemo } from './seed-demo.js'
+import { ensureUser, seedDemo } from './seed-demo.js'
 
 /**
  * Deterministic demo seed — cold-start proof, integration fixture, and Loom
- * script in one. Set SEED_USER_ID to your WorkOS user id (the JWT `sub`) to see
- * these in the UI after login; otherwise they belong to the default 'demo-user'.
+ * script in one. Creates a login-able demo account and seeds its sessions, so a
+ * reviewer can sign in with the credentials below and immediately see data.
+ * (Signing up a fresh account works too — the seed is purely a convenience.)
  */
-const DEMO_USER = process.env.SEED_USER_ID ?? 'demo-user'
+const EMAIL = process.env.SEED_USER_EMAIL ?? 'demo@steer.dev'
+const PASSWORD = process.env.SEED_USER_PASSWORD ?? 'steerdemo123'
 
 async function main(): Promise<void> {
   const pool = createPool()
   const db = createDb(pool)
-  await seedDemo(db, DEMO_USER)
+  const userId = await ensureUser(db, EMAIL, PASSWORD)
+  await seedDemo(db, userId)
   await pool.end()
   // eslint-disable-next-line no-console
-  console.log(`[seed] done (user=${DEMO_USER})`)
+  console.log(`[seed] done — log in with ${EMAIL} / ${PASSWORD}`)
 }
 
 main().catch((err: unknown) => {

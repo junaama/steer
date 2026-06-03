@@ -1,6 +1,27 @@
 import { eq } from 'drizzle-orm'
-import { sessions, events } from '@steer/schema'
+import { randomUUID } from 'node:crypto'
+import { sessions, events, users } from '@steer/schema'
+import { hashPassword } from './password.js'
 import type { Db } from './db.js'
+
+/**
+ * Ensure a login-able user with these credentials exists and return its id.
+ * Idempotent: if the email is already registered, its password is refreshed and
+ * the existing id returned, so re-seeding keeps the documented demo login valid.
+ */
+export async function ensureUser(db: Db, email: string, password: string): Promise<string> {
+  const normalized = email.toLowerCase()
+  const passwordHash = await hashPassword(password)
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, normalized))
+  const found = existing[0]
+  if (found) {
+    await db.update(users).set({ passwordHash }).where(eq(users.id, found.id))
+    return found.id
+  }
+  const id = randomUUID()
+  await db.insert(users).values({ id, email: normalized, passwordHash })
+  return id
+}
 
 /**
  * Seed a user's demo sessions. Idempotent — clears the user's existing sessions

@@ -2,8 +2,9 @@ export type GetToken = () => Promise<string | null>
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 /**
- * Wrap fetch so every API/sync request carries a fresh WorkOS bearer token. The
- * token is fetched per-request (the AuthKit SDK refreshes it near expiry).
+ * Wrap fetch so every API/sync request carries the current session bearer token.
+ * The token is read per-request from storage, so a freshly-issued token applies
+ * immediately without rebuilding the fetch wrapper.
  */
 export function createAuthedFetch(getToken: GetToken, fetchImpl: FetchLike): FetchLike {
   return async (url, init = {}) => {

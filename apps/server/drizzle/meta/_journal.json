@@ -15,6 +15,13 @@
       "when": 1780465557431,
       "tag": "0001_skinny_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780499677229,
+      "tag": "0002_dapper_blacklash",
+      "breakpoints": true
     }
   ]
 }
