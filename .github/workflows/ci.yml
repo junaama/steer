@@ -39,5 +39,9 @@ jobs:
         run: pnpm run typecheck
       - name: Test with coverage (enforced)
         run: pnpm run test:coverage
+      - name: Install Playwright (chromium)
+        run: pnpm --filter @steer/web exec playwright install --with-deps chromium
+      - name: Two-window E2E
+        run: pnpm --filter @steer/web e2e
       - name: Validate docker-compose
         run: docker compose config -q

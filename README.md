@@ -99,10 +99,13 @@ apps/web          Vite + React + TanStack DB: shell, live trace, interception co
 pnpm install
 pnpm -r typecheck            # strict TS across all packages
 pnpm -r test                 # unit + integration (needs a local Postgres on :54321)
-pnpm -r test:coverage        # enforced at 100%
+pnpm -r test:coverage        # enforced at 100% lines/functions/statements
+pnpm --filter @steer/web e2e # Playwright two-window live-sync test (self-contained)
 ```
 
-Integration tests run against a real Postgres (`docker compose up -d postgres`).
+Integration tests run against a real Postgres (`docker compose up -d postgres`). The
+two-window E2E drives two browser tabs through a shared store harness (no external
+services), proving the live cross-window sync UX.
 
 ## Demo
 
