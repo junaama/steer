@@ -122,6 +122,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
   const live = useLiveQuery((q) => q.from({ s: sessions })) as unknown as { data?: SessionRow[] }
   const mutate = sessions as unknown as {
     insert: (row: SessionRow) => void
+    update: (key: string, updater: (draft: SessionRow) => void) => void
     delete: (key: string) => void
   }
 
@@ -176,6 +177,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
             onFilter={setFilter}
             onOpen={setActiveId}
             onNew={() => setNewOpen(true)}
+            onRename={(id, title) => mutate.update(id, (d) => (d.title = title))}
             onDelete={setConfirmId}
           />
         }

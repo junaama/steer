@@ -194,8 +194,20 @@ textarea {
   background: transparent;
   outline: none;
   flex: 1;
+  min-width: 0;
   color: var(--text-body);
   font-size: 12px;
+}
+.search kbd {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.4;
 }
 .filters {
   display: flex;
@@ -219,15 +231,20 @@ textarea {
 }
 .session-list {
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 8px 12px;
   min-height: 0;
 }
 .srow {
   position: relative;
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 10px 11px;
   border-radius: var(--r-md);
   cursor: pointer;
@@ -245,10 +262,17 @@ textarea {
   border-radius: 50%;
   margin-top: 5px;
 }
+.srow .s-main {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
 .srow .s-title {
   color: var(--text-strong);
   font-size: 12.5px;
   font-weight: 500;
+  width: 100%;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -259,8 +283,12 @@ textarea {
   margin-top: 2px;
   display: flex;
   gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
-.row-del {
+.row-del,
+.row-edit {
   opacity: 0;
   width: 22px;
   height: 22px;
@@ -269,11 +297,24 @@ textarea {
   background: transparent;
   color: var(--text-dim);
 }
-.srow:hover .row-del {
+.srow:hover .row-del,
+.srow:hover .row-edit {
   opacity: 1;
 }
 .row-del:hover {
   color: var(--sol-red);
+}
+.row-edit:hover {
+  color: var(--accent);
+}
+.s-rename {
+  width: 100%;
+  background: var(--bg-input, #0d1117);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  color: var(--text-strong);
+  font: inherit;
+  padding: 2px 6px;
 }
 .side-foot {
   padding: 10px 12px;
