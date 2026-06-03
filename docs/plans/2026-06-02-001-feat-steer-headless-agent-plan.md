@@ -1,6 +1,6 @@
 ---
 date: 2026-06-02
-status: active
+status: completed
 type: feat
 plan_depth: deep
 origin:
