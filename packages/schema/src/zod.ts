@@ -5,6 +5,8 @@ import {
   events,
   controls,
   SESSION_STATUSES,
+  EVENT_TYPES,
+  CONTROL_TYPES,
   TOOL_STATUSES,
   type EventType,
   type ControlType,
@@ -12,6 +14,8 @@ import {
 import { READ_ONLY_TOOLS, TOOL_KINDS } from './tools.js'
 
 export const sessionStatusSchema = z.enum(SESSION_STATUSES)
+export const eventTypeSchema = z.enum(EVENT_TYPES)
+export const controlTypeSchema = z.enum(CONTROL_TYPES)
 export const toolStatusSchema = z.enum(TOOL_STATUSES)
 export const toolKindSchema = z.enum(TOOL_KINDS)
 

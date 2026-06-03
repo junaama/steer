@@ -1,7 +1,17 @@
-// DB migration runner. Populated in U2/U3 (drizzle migrate against DATABASE_URL).
-// For now it is a clean no-op so the compose `migrate` one-shot exits 0 and the
-// server can boot behind it.
+import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { createPool, createDb } from './db.js'
 
-// eslint-disable-next-line no-console
-console.log('[migrate] no migrations yet — U2/U3 wire up drizzle migrations')
-process.exit(0)
+async function main(): Promise<void> {
+  const pool = createPool()
+  const db = createDb(pool)
+  await migrate(db, { migrationsFolder: './drizzle' })
+  await pool.end()
+  // eslint-disable-next-line no-console
+  console.log('[migrate] done')
+}
+
+main().catch((err: unknown) => {
+  // eslint-disable-next-line no-console
+  console.error('[migrate] failed', err)
+  process.exit(1)
+})
