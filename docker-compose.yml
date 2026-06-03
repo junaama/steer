@@ -1,0 +1,119 @@
+name: steer
+
+# ============================================================
+# Steer — full stack. `docker compose up --build` from a clean
+# clone (after copying .env.example → .env) brings everything up.
+#
+# Exposed to the host: web (5173), server (8080), postgres (54321).
+# NOT exposed: electric (internal), agent (PORTLESS, outbound only).
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    # wal_level=logical is REQUIRED for Electric's replication slot.
+    command: postgres -c wal_level=logical -c max_wal_senders=10 -c max_replication_slots=10
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-steer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-steer}
+      POSTGRES_DB: ${POSTGRES_DB:-steer}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-steer} -d ${POSTGRES_DB:-steer}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "54321:5432"
+
+  electric:
+    image: electricsql/electric:latest
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
+      # Dev only: Electric sits behind the server's auth proxy and is never
+      # published to the host. Production swaps this for ELECTRIC_SECRET.
+      ELECTRIC_INSECURE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/v1/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    # No host port — only the server proxies to it over the compose network.
+    expose:
+      - "3000"
+
+  # One-shot: runs DB migrations, then exits 0 before the app boots.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: runtime
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
+      ELECTRIC_URL: ${ELECTRIC_URL:-http://electric:3000}
+      WORKOS_API_KEY: ${WORKOS_API_KEY:-}
+      WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
+      PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      electric:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      VITE_SERVER_URL: ${VITE_SERVER_URL:-http://localhost:8080}
+      VITE_WORKOS_CLIENT_ID: ${VITE_WORKOS_CLIENT_ID:-}
+      VITE_WORKOS_REDIRECT_URI: ${VITE_WORKOS_REDIRECT_URI:-http://localhost:5173/callback}
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+
+  # PORTLESS by design (PRD): connects outbound only to the server + Electric.
+  agent:
+    build:
+      context: .
+      dockerfile: apps/agent/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
+      ELECTRIC_URL: ${ELECTRIC_URL:-http://electric:3000}
+      SERVER_URL: http://server:8080
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      server:
+        condition: service_healthy
+      electric:
+        condition: service_healthy
+
+volumes:
+  pgdata:

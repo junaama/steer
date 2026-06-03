@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+.git
+dist
+**/dist
+coverage
+**/coverage
+.env
+.env.*
+!.env.example
+design-reference
+docs
+hlyr.zip
+playwright-report
+test-results
+*.log
