@@ -3,25 +3,12 @@ import { generateText, tool, type CoreMessage, type ToolSet } from 'ai'
 import { toolArgSchemas } from '@steer/schema'
 import type { ModelDriver, Step } from './loop.js'
 import type { StoredEvent } from './store.js'
+import { buildContext } from './context.js'
 
 const MODEL_IDS: Record<string, string> = {
   sonnet: 'claude-3-5-sonnet-latest',
   opus: 'claude-3-opus-latest',
   haiku: 'claude-3-5-haiku-latest',
-}
-
-function buildMessages(task: string | null, events: StoredEvent[]): CoreMessage[] {
-  const messages: CoreMessage[] = []
-  if (task) messages.push({ role: 'user', content: task })
-  for (const e of events) {
-    if (e.type === 'message') {
-      messages.push({ role: 'assistant', content: (e.payload as { text: string }).text })
-    } else if (e.type === 'tool_result' || e.type === 'tool_substituted') {
-      const p = e.payload as { name: string; result: string }
-      messages.push({ role: 'user', content: `[tool ${p.name} result]\n${p.result}` })
-    }
-  }
-  return messages
 }
 
 const toolSet: ToolSet = Object.fromEntries(
@@ -37,12 +24,13 @@ export function createAnthropicDriver(opts: { model: string; task: string | null
   const modelId = MODEL_IDS[opts.model] ?? opts.model
   return {
     async next(events: StoredEvent[]): Promise<Step> {
+      const messages = buildContext(opts.task, events) as CoreMessage[]
       const result = await generateText({
         model: anthropic(modelId),
         system:
           'You are a coding agent. Use the provided tools to inspect and edit the workspace. ' +
           'When the task is complete, reply with a short summary and call no tool.',
-        messages: buildMessages(opts.task, events),
+        messages,
         tools: toolSet,
         maxSteps: 1,
       })

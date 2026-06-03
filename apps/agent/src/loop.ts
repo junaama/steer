@@ -1,6 +1,7 @@
 import { classifyTool } from '@steer/schema'
 import type { AgentStore, StoredEvent } from './store.js'
 import type { ToolFn } from './tools/index.js'
+import { resolveTool } from './intercept.js'
 
 /** One scripted step the model driver yields. Mirrors the real LLM's turn shapes. */
 export type Step =
@@ -44,10 +45,8 @@ export interface RunOptions {
   workspaceRoot: string
   tools: Record<string, ToolFn>
   signal?: AbortSignal
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  /** Control-poll interval for the approval gate + live cancel (ms). */
+  pollMs?: number
 }
 
 /**
@@ -93,27 +92,25 @@ export async function runSession(
       continue
     }
 
-    // Tool step. (U8 adds the approval gate for side-effecting tools.)
-    const kind = classifyTool(step.name)
+    // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
     await store.appendEvent(sessionId, 'tool_proposed', {
       toolCallId: step.toolCallId,
       name: step.name,
-      kind,
+      kind: classifyTool(step.name),
       args: step.args,
     })
-    const impl = options.tools[step.name]
-    let result: string
-    try {
-      result = impl
-        ? await impl(step.args, { workspaceRoot: options.workspaceRoot, signal: options.signal })
-        : `error: unknown tool ${step.name}`
-    } catch (err) {
-      result = `error: ${errorMessage(err)}`
-    }
-    await store.appendEvent(sessionId, 'tool_result', {
-      toolCallId: step.toolCallId,
-      name: step.name,
-      result,
+    const outcome = await resolveTool(store, sessionId, step, {
+      tools: options.tools,
+      workspaceRoot: options.workspaceRoot,
+      pollMs: options.pollMs ?? 200,
+      signal: options.signal,
     })
+    if (outcome === 'interrupted') {
+      const events = await store.listEvents(sessionId)
+      const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
+      await store.appendEvent(sessionId, 'interrupted', { atSeq })
+      await store.setStatus(sessionId, 'interrupted')
+      return
+    }
   }
 }
