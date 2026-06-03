@@ -14,6 +14,11 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
+  "dependencies": {
+    "drizzle-orm": "^0.38.3",
+    "drizzle-zod": "^0.6.1",
+    "zod": "^3.24.1"
+  },
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",

@@ -1,6 +1,9 @@
-// Schema spine — the single source of truth for the data model.
-// Populated in U2: drizzle tables (sessions, append-only events, controls),
-// drizzle-zod row schemas, tool I/O schemas, and the read-only/side-effecting
-// tool policy map. For now this stub keeps the workspace resolvable.
+// Schema spine — the single source of truth for the data model. Drizzle tables
+// emit the Postgres DDL + the row types; drizzle-zod + the payload schemas here
+// validate every write; the tool policy classifies tools for the agent and UI.
 
-export const SCHEMA_VERSION = '0.0.0' as const
+export const SCHEMA_VERSION = '0.1.0' as const
+
+export * from './schema.js'
+export * from './tools.js'
+export * from './zod.js'
