@@ -58,7 +58,7 @@ const readOnlyToolEnum = z.enum(READ_ONLY_TOOLS as [string, ...string[]])
 /** Control payload schema keyed by `control.type`. */
 export const controlPayloadSchemas = {
   interrupt: z.object({}).strict(),
-  approve: z.object({ toolCallId: z.string().min(1) }),
+  approve: z.object({ toolCallId: z.string().min(1), alwaysAllow: z.boolean().optional() }),
   reject: z.object({ toolCallId: z.string().min(1) }),
   // A substitute tool MUST be read-only (INT-R6) — enforced at the schema level.
   override: z

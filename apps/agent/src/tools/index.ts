@@ -3,6 +3,7 @@ import { resolve, relative, isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { validateToolArgs } from '@steer/schema'
 import { edit_file, multi_edit } from './edit.js'
+import { run_command } from './run.js'
 
 export interface ToolContext {
   workspaceRoot: string
@@ -97,6 +98,7 @@ export const tools: Record<string, ToolFn> = {
   edit_file,
   multi_edit,
   bash,
+  run_command,
 }
 
-export { edit_file, multi_edit }
+export { edit_file, multi_edit, run_command }

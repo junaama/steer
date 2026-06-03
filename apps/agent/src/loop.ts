@@ -77,6 +77,7 @@ export class ScriptedModel implements ModelDriver {
 }
 
 const TERMINAL_TYPES = new Set(['thinking', 'message', 'tool_result', 'tool_cancelled', 'tool_substituted'])
+const DEFAULT_MAX_STEPS = 80
 
 /**
  * The completed-step count is derived from the event log: each step ends in
@@ -93,7 +94,7 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Control-poll interval for the approval gate + live cancel (ms). */
   pollMs?: number
-  /** Safety ceiling on completed steps before a run is force-stopped (default 40). */
+  /** Safety ceiling on completed steps before a run is force-stopped (default 80). */
   maxSteps?: number
 }
 
@@ -109,7 +110,8 @@ export async function runSession(
   options: RunOptions,
 ): Promise<void> {
   await store.setStatus(sessionId, 'running')
-  const maxSteps = options.maxSteps ?? 40
+  const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
+  const allowlist = new Set<string>()
 
   for (;;) {
     // Operator interrupt halts at the step boundary (control-plane-via-data-plane).
@@ -165,12 +167,13 @@ export async function runSession(
     // A side-effecting tool blocks at the approval gate — flip the session pill to
     // AWAITING APPROVAL while it waits so the operator sees it needs a decision
     // (the interrupt path below owns 'interrupted', so don't reset that case).
-    const gated = kind === 'side-effecting'
+    const gated = kind === 'side-effecting' && !allowlist.has(step.name)
     if (gated) await store.setStatus(sessionId, 'awaiting-approval')
     const outcome = await resolveTool(store, sessionId, step, {
       tools: options.tools,
       workspaceRoot: options.workspaceRoot,
       pollMs: options.pollMs ?? 200,
+      allowlist,
       signal: options.signal,
     })
     if (outcome === 'interrupted') {

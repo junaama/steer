@@ -12,6 +12,8 @@ export interface ResolveDeps {
   tools: Record<string, ToolFn>
   workspaceRoot: string
   pollMs: number
+  /** Per-session tool-name grants from approve controls carrying alwaysAllow. */
+  allowlist?: Set<string>
   /** Run-level abort (daemon shutdown) — lets a waiting gate exit cleanly. */
   signal?: AbortSignal
 }
@@ -96,7 +98,10 @@ export async function resolveTool(
       }
       return 'resolved'
     }
-    // approve → execute as proposed
+    // approve → execute as proposed; alwaysAllow grants this tool name for the
+    // rest of the in-memory session run.
+    const payload = control.payload as { alwaysAllow?: boolean }
+    if (payload.alwaysAllow === true) deps.allowlist?.add(step.name)
     const result = await runTool(step.name, step.args)
     await store.appendEvent(sessionId, 'tool_result', { toolCallId: step.toolCallId, name: step.name, result })
     return 'resolved'
@@ -104,6 +109,12 @@ export async function resolveTool(
 
   // U8: approval gate for side-effecting tools.
   if (kind === 'side-effecting') {
+    if (deps.allowlist?.has(step.name)) {
+      const result = await runTool(step.name, step.args)
+      await store.appendEvent(sessionId, 'tool_result', { toolCallId: step.toolCallId, name: step.name, result })
+      return 'resolved'
+    }
+
     for (;;) {
       if (deps.signal?.aborted) return 'resolved'
       const controls = await store.listUnconsumedControls(sessionId)

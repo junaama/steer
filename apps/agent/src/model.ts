@@ -33,8 +33,9 @@ export function createModelDriver(opts: { model: string; task: string | null }):
       const result = await generateText({
         model: llm,
         system:
-          'You are a coding agent. Use the provided tools to inspect and edit the workspace. ' +
-          'When the task is complete, reply with a short summary and call no tool.',
+          'You are a coding agent. Make a brief plan, then use the provided tools to inspect and edit the workspace. ' +
+          'Prefer edit_file or multi_edit over write_file for existing files. After any edit, run the project tests or build with run_command, read the failures, and keep fixing until verification passes. ' +
+          'When the task is truly complete, reply with a short summary and call no tool.',
         messages,
         tools: toolSet,
         maxSteps: 1,

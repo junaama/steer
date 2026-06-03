@@ -110,6 +110,68 @@ describe('U8 approval gate (side-effecting tools)', () => {
     await p
     expect(await fileExists('gate.txt')).toBe(false)
   })
+
+  it('records an alwaysAllow approval and auto-runs the same tool later in the session', async () => {
+    const id = await newSession()
+    const allowlist = new Set<string>()
+    const calls: string[] = []
+    const runTool: ToolFn = async () => {
+      calls.push('run')
+      return 'ok'
+    }
+    await addControl(id, 'approve', { toolCallId: 'r1', alwaysAllow: true })
+    await resolveTool(
+      store,
+      id,
+      { toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
+      { ...base, tools: { run_command: runTool }, allowlist },
+    )
+    expect(allowlist.has('run_command')).toBe(true)
+
+    await resolveTool(
+      store,
+      id,
+      { toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
+      { ...base, tools: { run_command: runTool }, allowlist },
+    )
+
+    expect(calls).toEqual(['run', 'run'])
+    expect(await types(id)).toEqual(['tool_result', 'tool_result'])
+  })
+
+  it('does not auto-run the same tool after a one-time approval', async () => {
+    const id = await newSession()
+    const allowlist = new Set<string>()
+    const calls: string[] = []
+    const runTool: ToolFn = async () => {
+      calls.push('run')
+      return 'ok'
+    }
+    await addControl(id, 'approve', { toolCallId: 'r1' })
+    await resolveTool(
+      store,
+      id,
+      { toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
+      { ...base, tools: { run_command: runTool }, allowlist },
+    )
+    expect(allowlist.has('run_command')).toBe(false)
+
+    const ac = new AbortController()
+    let resolved = false
+    const p = resolveTool(
+      store,
+      id,
+      { toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
+      { ...base, tools: { run_command: runTool }, allowlist, signal: ac.signal },
+    ).then(() => {
+      resolved = true
+    })
+    await sleep(40)
+    expect(resolved).toBe(false)
+    expect(calls).toEqual(['run'])
+    ac.abort()
+    await p
+  })
 })
 
 describe('U9 override engine + audit', () => {

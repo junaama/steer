@@ -86,6 +86,15 @@ describe('control payloads', () => {
     expect(parseControlPayload('interrupt', {})).toEqual({})
     expect(() => parseControlPayload('interrupt', { extra: 1 })).toThrow()
   })
+
+  it('accepts approve payloads with an optional alwaysAllow grant', () => {
+    expect(parseControlPayload('approve', { toolCallId: 'tc1', alwaysAllow: true })).toEqual({
+      toolCallId: 'tc1',
+      alwaysAllow: true,
+    })
+    expect(parseControlPayload('approve', { toolCallId: 'tc1' })).toEqual({ toolCallId: 'tc1' })
+    expect(() => parseControlPayload('approve', { toolCallId: 'tc1', alwaysAllow: 'yes' })).toThrow()
+  })
 })
 
 describe('drizzle-zod row schemas', () => {

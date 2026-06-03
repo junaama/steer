@@ -17,7 +17,7 @@ describe('tool policy', () => {
   })
 
   it('classifies side-effecting tools as side-effecting', () => {
-    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash'] as const) {
+    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash', 'run_command'] as const) {
       expect(classifyTool(name)).toBe('side-effecting')
       expect(isReadOnly(name)).toBe(false)
     }
@@ -36,6 +36,7 @@ describe('tool policy', () => {
     expect(READ_ONLY_TOOLS).not.toContain('edit_file')
     expect(READ_ONLY_TOOLS).not.toContain('multi_edit')
     expect(READ_ONLY_TOOLS).not.toContain('bash')
+    expect(READ_ONLY_TOOLS).not.toContain('run_command')
   })
 
   it('isToolName narrows known names', () => {
@@ -79,6 +80,11 @@ describe('validateToolArgs', () => {
         { old_string: 'new', new_string: 'newer' },
       ],
     })
+    expect(validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 1000 })).toEqual({
+      command: 'pnpm test',
+      timeoutMs: 1000,
+    })
+    expect(validateToolArgs('run_command', { command: 'pnpm test' })).toEqual({ command: 'pnpm test' })
   })
 
   it('rejects malformed args', () => {
@@ -87,5 +93,8 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('write_file', { path: 'x' })).toThrow() // missing content
     expect(() => validateToolArgs('edit_file', { path: 'x', old_string: 'old' })).toThrow()
     expect(() => validateToolArgs('multi_edit', { path: 'x', edits: [{ old_string: 'old' }] })).toThrow()
+    expect(() => validateToolArgs('run_command', { command: '' })).toThrow()
+    expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 0 })).toThrow()
+    expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 1.5 })).toThrow()
   })
 })

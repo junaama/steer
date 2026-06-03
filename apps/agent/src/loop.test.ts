@@ -300,6 +300,145 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
+  it('auto-runs a second run_command after an alwaysAllow approval without re-entering awaiting-approval', async () => {
+    const id = await newSession()
+    await db.insert(controls).values({
+      id: randomUUID(),
+      sessionId: id,
+      type: 'approve',
+      payload: { toolCallId: 'r1', alwaysAllow: true },
+    })
+    const seen: string[] = []
+    const observingStore: AgentStore = {
+      ...store,
+      async setStatus(sid, st) {
+        seen.push(st)
+        return store.setStatus(sid, st)
+      },
+    }
+    const script: Step[] = [
+      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
+      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
+      { t: 'say', text: 'green' },
+    ]
+    const fakeRun: ToolFn = async (args) => `ran ${(args.command as string) ?? ''}`
+
+    await runSession(observingStore, new ScriptedModel(script), id, {
+      workspaceRoot: workspace,
+      tools: { ...tools, run_command: fakeRun },
+      pollMs: 5,
+    })
+
+    const events = await store.listEvents(id)
+    expect(types(events)).toEqual(['tool_proposed', 'tool_result', 'tool_proposed', 'tool_result', 'message'])
+    expect(seen.filter((s) => s === 'awaiting-approval')).toHaveLength(1)
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('gates a second run_command again when the first approval is one-time', async () => {
+    const id = await newSession()
+    await db.insert(controls).values({
+      id: randomUUID(),
+      sessionId: id,
+      type: 'approve',
+      payload: { toolCallId: 'r1' },
+    })
+    const seen: string[] = []
+    const observingStore: AgentStore = {
+      ...store,
+      async setStatus(sid, st) {
+        seen.push(st)
+        return store.setStatus(sid, st)
+      },
+    }
+    const script: Step[] = [
+      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
+      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
+      { t: 'say', text: 'green' },
+    ]
+    const p = runSession(observingStore, new ScriptedModel(script), id, {
+      workspaceRoot: workspace,
+      tools: { ...tools, run_command: async () => 'ran' },
+      pollMs: 5,
+    })
+
+    for (let i = 0; i < 100; i++) {
+      const events = await store.listEvents(id)
+      const secondRunProposed = events.some((e) => {
+        const payload = e.payload as { toolCallId?: string }
+        return e.type === 'tool_proposed' && payload.toolCallId === 'r2'
+      })
+      if (secondRunProposed && (await status(id)) === 'awaiting-approval') break
+      await sleep(5)
+    }
+
+    expect(await status(id)).toBe('awaiting-approval')
+    expect(seen.filter((s) => s === 'awaiting-approval')).toHaveLength(2)
+    await db.insert(controls).values({
+      id: randomUUID(),
+      sessionId: id,
+      type: 'approve',
+      payload: { toolCallId: 'r2' },
+    })
+    await p
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('runs an edit-test-fix-test verify loop and records the expected event order', async () => {
+    const id = await newSession()
+    await db.insert(controls).values([
+      { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'e1' } },
+      { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'r1', alwaysAllow: true } },
+      { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'e2' } },
+    ])
+    const script: Step[] = [
+      {
+        t: 'tool',
+        toolCallId: 'e1',
+        name: 'edit_file',
+        args: { path: 'verify.txt', old_string: 'red', new_string: 'green' },
+      },
+      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
+      {
+        t: 'tool',
+        toolCallId: 'e2',
+        name: 'edit_file',
+        args: { path: 'verify.txt', old_string: 'green', new_string: 'blue' },
+      },
+      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
+      { t: 'say', text: 'tests pass' },
+    ]
+    const runResults = ['failing test output\n[exit 1]', 'passing test output\n[exit 0]']
+    const fakeTools: Record<string, ToolFn> = {
+      ...tools,
+      edit_file: async (args) => `edited ${(args.path as string) ?? ''}`,
+      run_command: async () => runResults.shift() ?? 'unexpected\n[exit 1]',
+    }
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools: fakeTools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(types(events)).toEqual([
+      'tool_proposed',
+      'tool_result',
+      'tool_proposed',
+      'tool_result',
+      'tool_proposed',
+      'tool_result',
+      'tool_proposed',
+      'tool_result',
+      'message',
+    ])
+    const results = events.filter((e) => e.type === 'tool_result').map((e) => (e.payload as { result: string }).result)
+    expect(results).toEqual([
+      'edited verify.txt',
+      'failing test output\n[exit 1]',
+      'edited verify.txt',
+      'passing test output\n[exit 0]',
+    ])
+    expect(await status(id)).toBe('completed')
+  })
+
   it('halts mid-tool when an interrupt arrives during execution', async () => {
     const id = await newSession()
     const slow: ToolFn = (_a, ctx) =>

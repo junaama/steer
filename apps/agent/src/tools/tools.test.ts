@@ -2,7 +2,18 @@ import { describe, it, expect, beforeAll, vi, afterEach } from 'vitest'
 import { mkdtemp, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { read_file, list_dir, grep, glob, web_fetch, write_file, bash, edit_file, multi_edit } from './index.js'
+import {
+  read_file,
+  list_dir,
+  grep,
+  glob,
+  web_fetch,
+  write_file,
+  bash,
+  edit_file,
+  multi_edit,
+  run_command,
+} from './index.js'
 import { applyEdits } from './edit.js'
 
 let root: string
@@ -195,5 +206,54 @@ describe('bash', () => {
   })
   it('appends a non-zero exit marker', async () => {
     expect(await bash({ command: 'exit 3' }, ctx())).toContain('[exit 3]')
+  })
+})
+
+describe('run_command', () => {
+  it('runs a verification command and always appends an exit marker', async () => {
+    const out = await run_command({ command: 'node -e "process.stdout.write(\'hi\')"' }, ctx())
+    expect(out).toContain('hi')
+    expect(out).toMatch(/\[exit 0\]$/)
+  })
+
+  it('captures stderr and appends a non-zero exit marker', async () => {
+    const out = await run_command(
+      { command: 'node -e "process.stderr.write(\'bad\'); process.exit(1)"' },
+      ctx(),
+    )
+    expect(out).toContain('bad')
+    expect(out).toMatch(/\[exit 1\]$/)
+  })
+
+  it('times out long-running commands and reports a non-zero exit marker', async () => {
+    const out = await run_command({ command: 'node -e "setTimeout(() => {}, 1000)"', timeoutMs: 20 }, ctx())
+    expect(out).toContain('[timeout after 20ms]')
+    expect(out).toMatch(/\[exit 1\]$/)
+  })
+
+  it('rejects when the caller aborts the command', async () => {
+    const ac = new AbortController()
+    const p = run_command({ command: 'node -e "setTimeout(() => {}, 1000)"' }, { ...ctx(), signal: ac.signal })
+    setTimeout(() => ac.abort(), 10)
+    await expect(p).rejects.toThrow()
+  })
+
+  it('truncates very large output with a marker before the exit marker', async () => {
+    const out = await run_command({ command: 'node -e "process.stdout.write(\'x\'.repeat(20000))"' }, ctx())
+    expect(out).toContain('[truncated')
+    expect(out).toMatch(/\[exit 0\]$/)
+    expect(out.length).toBeLessThan(20000)
+  })
+
+  it('truncates when a later output chunk crosses the cap', async () => {
+    const out = await run_command(
+      {
+        command:
+          'node -e "process.stdout.write(\'x\'.repeat(16000)); setTimeout(() => process.stdout.write(\'y\'.repeat(1000)), 10)"',
+      },
+      ctx(),
+    )
+    expect(out).toContain('[truncated')
+    expect(out).toMatch(/\[exit 0\]$/)
   })
 })
