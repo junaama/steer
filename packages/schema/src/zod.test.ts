@@ -183,11 +183,13 @@ describe('drizzle-zod row schemas', () => {
       model: 'sonnet',
       environment: 'laptop',
       claimedBy: 'laptop',
+      workdir: '/dev/app',
       createdAt: new Date(),
       updatedAt: new Date(),
     })
     expect(r.environment).toBe('laptop')
     expect(r.claimedBy).toBe('laptop')
+    expect(r.workdir).toBe('/dev/app')
   })
 
   it('accepts null environment and claimed_by on a selected session row', () => {
@@ -200,10 +202,12 @@ describe('drizzle-zod row schemas', () => {
       model: 'sonnet',
       environment: null,
       claimedBy: null,
+      workdir: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
     expect(r.environment).toBeNull()
     expect(r.claimedBy).toBeNull()
+    expect(r.workdir).toBeNull()
   })
 })
