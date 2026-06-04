@@ -54,20 +54,35 @@ export function decodeEvents(items: unknown[]): AgentEvent[] {
   return out.sort((a, b) => a.seq - b.seq)
 }
 
-/** Decode the sessions shape into states (used to detect when a run finishes). */
+/**
+ * Decode the sessions shape into current state. Electric serves a shape as an
+ * ordered op-log: an `insert` carries the full row, an `update` only the changed
+ * columns (plus the id), a `delete` only the id. Fold the log by id — merging
+ * partial updates so a status-only update doesn't blank the title (and a rename
+ * doesn't blank the status), and dropping deleted rows. Callers must pass the
+ * *fully drained* shape (see SteerClient.shape) or this reflects a stale prefix.
+ */
 export function decodeSessions(items: unknown[]): SessionState[] {
-  const out: SessionState[] = []
+  const byId = new Map<string, SessionState>()
   for (const item of items) {
     const row = item as ShapeRow
-    if (!row.value || !row.headers?.operation) continue
+    const op = row.headers?.operation
+    if (!row.value || !op) continue
     const v = row.value
-    out.push({
-      id: String(v.id ?? ''),
-      title: String(v.title ?? ''),
-      lastStatus: String(v.last_status ?? v.lastStatus ?? ''),
+    const id = String(v.id ?? '')
+    if (op === 'delete') {
+      byId.delete(id)
+      continue
+    }
+    const prev = byId.get(id) ?? { id, title: '', lastStatus: '' }
+    const status = v.last_status ?? v.lastStatus
+    byId.set(id, {
+      id,
+      title: v.title !== undefined ? String(v.title) : prev.title,
+      lastStatus: status !== undefined ? String(status) : prev.lastStatus,
     })
   }
-  return out
+  return [...byId.values()]
 }
 
 function truncate(s: string, n = 200): string {

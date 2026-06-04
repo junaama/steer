@@ -95,10 +95,46 @@ export class SteerClient {
     )
   }
 
-  /** Raw Electric shape array for a collection (decoded by events.ts). */
-  shape(token: string, collection: 'sessions' | 'events', sessionId?: string): Promise<unknown[]> {
-    const q = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''
-    return this.request<unknown[]>(`/sync/${collection}${q}`, { method: 'GET' }, token)
+  /**
+   * Read an Electric shape to its current state. Electric serves a shape as a
+   * log: the first request (offset=-1, applied by the proxy) returns only the
+   * initial snapshot, terminated by a `snapshot-end` control with an
+   * `electric-offset` header but *no* `electric-up-to-date`. A conformant reader
+   * must keep requesting from the returned offset+handle until Electric reports
+   * up-to-date; otherwise it sees a frozen snapshot and misses every later
+   * insert / rename / status change (the web app's TanStack DB client does this,
+   * and the CLI must too). Returns the concatenated log for events.ts to fold.
+   */
+  async shape(token: string, collection: 'sessions' | 'events', sessionId?: string): Promise<unknown[]> {
+    const base = `/sync/${collection}${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`
+    const sep = base.includes('?') ? '&' : '?'
+    const messages: unknown[] = []
+    let cursor: { offset: string; handle: string } | null = null
+    for (;;) {
+      const path = cursor
+        ? `${base}${sep}offset=${encodeURIComponent(cursor.offset)}&handle=${encodeURIComponent(cursor.handle)}`
+        : base
+      const { rows, headers } = await this.getShape(path, token)
+      messages.push(...rows)
+      // up-to-date header => caught up with Electric; stop the (non-live) drain.
+      if (headers.get('electric-up-to-date') !== null) break
+      const offset = headers.get('electric-offset')
+      const handle = headers.get('electric-handle')
+      // No cursor to advance from (a degenerate response) — return what we have.
+      if (offset === null || handle === null) break
+      cursor = { offset, handle }
+    }
+    return messages
+  }
+
+  /** One shape request, exposing the Electric cursor headers the drain needs. */
+  private async getShape(path: string, token: string): Promise<{ rows: unknown[]; headers: Headers }> {
+    const res = await this.fetchImpl(`${this.opts.serverUrl}${path}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const text = await res.text()
+    if (!res.ok) throw new SteerError(res.status, extractError(text) ?? `request failed (${res.status})`)
+    return { rows: JSON.parse(text) as unknown[], headers: res.headers }
   }
 }
 
