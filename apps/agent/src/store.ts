@@ -1,4 +1,4 @@
-import { sql, eq, and, isNull, asc } from 'drizzle-orm'
+import { sql, eq, and, or, isNull, asc } from 'drizzle-orm'
 import {
   events,
   controls,
@@ -34,6 +34,14 @@ export interface AgentStore {
   setStatus(sessionId: string, status: SessionStatus): Promise<void>
   listUnconsumedControls(sessionId: string): Promise<StoredControl[]>
   consumeControl(id: string): Promise<void>
+  /**
+   * Atomically claim a session for this daemon (single-owner). Returns true iff
+   * this daemon now owns it — the claim succeeds only when the row is unclaimed
+   * or already claimed by the same `owner` (idempotent for re-queue/crash-resume,
+   * so a follow-up turn resumes on the same environment). A different daemon's
+   * claim returns false, so two daemons never run the same session.
+   */
+  claimSession(sessionId: string, owner: string): Promise<boolean>
 }
 
 export function createDbStore(db: Db): AgentStore {
@@ -77,6 +85,19 @@ export function createDbStore(db: Db): AgentStore {
 
     async consumeControl(id) {
       await db.update(controls).set({ consumedAt: new Date() }).where(eq(controls.id, id))
+    },
+
+    async claimSession(sessionId, owner) {
+      // Compare-and-set: take the row only if unclaimed or already mine. Postgres
+      // makes the conditional UPDATE atomic, so concurrent daemons can't both win.
+      const won = await db
+        .update(sessions)
+        .set({ claimedBy: owner })
+        .where(
+          and(eq(sessions.id, sessionId), or(isNull(sessions.claimedBy), eq(sessions.claimedBy, owner))),
+        )
+        .returning({ id: sessions.id })
+      return won.length > 0
     },
   }
 }

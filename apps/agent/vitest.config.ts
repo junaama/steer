@@ -8,8 +8,16 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // Entrypoint, poll daemon, external-LLM driver, and DB infra.
-      exclude: ['**/*.test.ts', 'src/index.ts', 'src/daemon.ts', 'src/model.ts', 'src/db.ts'],
+      // Entrypoints, poll daemon, external-LLM driver, and DB infra.
+      exclude: [
+        '**/*.test.ts',
+        'src/index.ts',
+        'src/bin-agent.ts',
+        'src/start.ts',
+        'src/daemon.ts',
+        'src/model.ts',
+        'src/db.ts',
+      ],
       thresholds: { lines: 100, functions: 100, statements: 100, branches: 90 },
       reporter: ['text-summary'],
     },
