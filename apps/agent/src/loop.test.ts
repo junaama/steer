@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
-import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, findCachedWebFetch, type Step, type ModelDriver } from './loop.js'
+import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, findCachedWebFetch, latestPlan, planMarkedAllDone, type Step, type ModelDriver } from './loop.js'
 import { tools, type ToolFn } from './tools/index.js'
 
 const TEST_URL =
@@ -330,11 +330,13 @@ describe('runSession', () => {
     await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
-    expect(types(events)).toEqual(['tool_proposed', 'tool_result', 'plan'])
+    // todo_write records a tool_result + a plan event mirroring its args; the run
+    // then completes, which appends a reconciling plan (every item marked done).
+    expect(types(events)).toEqual(['tool_proposed', 'tool_result', 'plan', 'plan'])
     const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
     expect(result.result).toBe('Updated plan · 3 items')
     const plan = events.find((e) => e.type === 'plan')!.payload as { items: typeof items }
-    expect(plan.items).toEqual(items)
+    expect(plan.items).toEqual(items) // the first plan mirrors the tool args verbatim
     expect(await status(id)).toBe('completed')
   })
 
@@ -350,6 +352,69 @@ describe('runSession', () => {
     expect(types(events)).toEqual(['tool_proposed', 'tool_result'])
     const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
     expect(result.result).toMatch(/^error:/)
+  })
+
+  it('marks every open plan item done when the run completes, so the plan matches Complete', async () => {
+    const id = await newSession()
+    // A plan the model never finishes flipping to done — the drift the ticket describes.
+    const items = [
+      { text: 'write schema tests', status: 'done' },
+      { text: 'wire agent loop', status: 'in_progress' },
+      { text: 'render todo panel', status: 'pending' },
+    ]
+    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    // The original plan, then a reconciling plan appended on completion.
+    const planEvents = events.filter((e) => e.type === 'plan')
+    expect(planEvents).toHaveLength(2)
+    const finalPlan = planEvents.at(-1)!.payload as { items: { text: string; status: string }[] }
+    expect(finalPlan.items).toEqual([
+      { text: 'write schema tests', status: 'done' },
+      { text: 'wire agent loop', status: 'done' },
+      { text: 'render todo panel', status: 'done' },
+    ])
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('does not append a redundant plan event when the plan already reads as all done', async () => {
+    const id = await newSession()
+    const items = [
+      { text: 'one', status: 'done' },
+      { text: 'two', status: 'done' },
+    ]
+    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+
+    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(events.filter((e) => e.type === 'plan')).toHaveLength(1)
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('leaves an unfinished plan untouched when the run errors out instead of completing', async () => {
+    const id = await newSession()
+    // Establish a plan, then keep proposing the same no-op call so the loop stops
+    // on the no-progress guard (status 'error') rather than reaching 'complete'.
+    const items = [{ text: 'keep going', status: 'in_progress' }]
+    let n = 0
+    const stuck: ModelDriver = {
+      next: async () => {
+        if (n++ === 0) return { t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }
+        // Re-propose the same read until the no-progress guard force-stops with 'error'.
+        return { t: 'tool', toolCallId: `r${n}`, name: 'read_file', args: { path: 'a.txt' } }
+      },
+    }
+
+    await runSession(store, stuck, id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const planEvents = events.filter((e) => e.type === 'plan')
+    expect(planEvents).toHaveLength(1) // no reconciling plan on the error path
+    expect((planEvents[0]!.payload as { items: { status: string }[] }).items[0]!.status).toBe('in_progress')
+    expect(await status(id)).toBe('error')
   })
 
   it('auto-runs a second run_command after an alwaysAllow approval without re-entering awaiting-approval', async () => {
@@ -643,5 +708,57 @@ describe('runSession web_fetch dedup', () => {
     expect(results[0]).toBe(`content of ${fetchUrl}`)
     expect(results[1]).toBe(`content of ${fetchUrl}`)
     expect(await status(id)).toBe('completed')
+  })
+})
+
+describe('latestPlan', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+
+  it('returns null when the log has no plan event', () => {
+    expect(latestPlan([sev(0, 'message', { text: 'hi' })])).toBeNull()
+  })
+
+  it('returns the items of the most recent plan event', () => {
+    const events = [
+      sev(0, 'plan', { items: [{ text: 'a', status: 'pending' }] }),
+      sev(1, 'message', { text: 'working' }),
+      sev(2, 'plan', { items: [{ text: 'a', status: 'in_progress' }] }),
+    ]
+    expect(latestPlan(events)).toEqual([{ text: 'a', status: 'in_progress' }])
+  })
+
+  it('returns null when the latest plan payload has no items array', () => {
+    expect(latestPlan([sev(0, 'plan', { items: 'oops' })])).toBeNull()
+  })
+})
+
+describe('planMarkedAllDone', () => {
+  it('returns null when there is no plan', () => {
+    expect(planMarkedAllDone(null)).toBeNull()
+  })
+
+  it('returns null for an empty plan', () => {
+    expect(planMarkedAllDone([])).toBeNull()
+  })
+
+  it('flips every pending/in_progress item to done and keeps done items', () => {
+    const items = [
+      { text: 'a', status: 'done' as const },
+      { text: 'b', status: 'in_progress' as const },
+      { text: 'c', status: 'pending' as const },
+    ]
+    expect(planMarkedAllDone(items)).toEqual([
+      { text: 'a', status: 'done' },
+      { text: 'b', status: 'done' },
+      { text: 'c', status: 'done' },
+    ])
+  })
+
+  it('returns null when the plan already reads as all done (no redundant event)', () => {
+    const items = [
+      { text: 'a', status: 'done' as const },
+      { text: 'b', status: 'done' as const },
+    ]
+    expect(planMarkedAllDone(items)).toBeNull()
   })
 })

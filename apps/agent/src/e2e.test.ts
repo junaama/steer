@@ -120,10 +120,21 @@ describe('coding-agent capstone integration', () => {
       'tool_proposed',
       'tool_result',
       'message',
+      // Completion reconciles the plan so the artifact can't read as unfinished.
+      'plan',
     ])
 
-    const plan = events.find((event) => event.type === 'plan')!.payload as { items: typeof planItems }
-    expect(plan.items).toEqual(planItems)
+    const planEvents = events.filter((event) => event.type === 'plan')
+    const plan = planEvents[0]!.payload as { items: typeof planItems }
+    expect(plan.items).toEqual(planItems) // the first plan mirrors the tool args verbatim
+    // The completed session's final plan has every item done — the synced artifact
+    // matches the Complete status instead of showing stale in-progress/pending todos.
+    const finalPlan = planEvents.at(-1)!.payload as { items: typeof planItems }
+    expect(finalPlan.items).toEqual([
+      { text: 'make the first fix', status: 'done' },
+      { text: 'run verification', status: 'done' },
+      { text: 'ship after green', status: 'done' },
+    ])
 
     const firstEdit = payloadFor<{ before: string; after: string }>(events, 'tool_proposed', 'e1')
     expect(firstEdit.before).toBe('status=red\n')
