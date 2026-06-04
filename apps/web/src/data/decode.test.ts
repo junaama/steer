@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decodeSessionRow, decodeEventRow } from './decode.js'
+import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './decode.js'
 
 describe('decodeSessionRow', () => {
   // Exact shape Electric streams (captured from /v1/shape): snake_case columns.
@@ -84,5 +84,50 @@ describe('decodeEventRow', () => {
     const row = decodeEventRow({ session_id: 's', seq: '2', type: 'user_message', payload: '{"text":"now add tests"}' })
     expect(row.type).toBe('user_message')
     expect(row.payload).toEqual({ text: 'now add tests' })
+  })
+})
+
+describe('decodeEnvironmentRow', () => {
+  const synced = {
+    id: 'laptop',
+    env: 'laptop',
+    host: 'dev-machine.local',
+    last_seen_at: '2026-06-04 10:00:00.000+00',
+    created_at: '2026-06-04 09:00:00.000+00',
+  }
+
+  it('maps Electric snake_case columns to camelCase', () => {
+    const row = decodeEnvironmentRow(synced)
+    expect(row.id).toBe('laptop')
+    expect(row.env).toBe('laptop')
+    expect(row.host).toBe('dev-machine.local')
+    expect(row.lastSeenAt).toBe('2026-06-04 10:00:00.000+00')
+    expect(row.createdAt).toBe('2026-06-04 09:00:00.000+00')
+  })
+
+  it('passes an optimistic camelCase row through unchanged', () => {
+    const optimistic = {
+      id: 'laptop',
+      env: 'laptop',
+      host: 'dev-machine.local',
+      lastSeenAt: '2026-06-04T10:00:00.000Z',
+      createdAt: '2026-06-04T09:00:00.000Z',
+    }
+    const row = decodeEnvironmentRow(optimistic)
+    expect(row.lastSeenAt).toBe('2026-06-04T10:00:00.000Z')
+    expect(row.createdAt).toBe('2026-06-04T09:00:00.000Z')
+  })
+
+  it('defaults env to null when absent (the default/unrouted daemon)', () => {
+    const row = decodeEnvironmentRow({ id: 'hostname-abc', host: 'hostname-abc' })
+    expect(row.env).toBeNull()
+  })
+
+  it('defaults missing fields to empty strings', () => {
+    const row = decodeEnvironmentRow({})
+    expect(row.id).toBe('')
+    expect(row.host).toBe('')
+    expect(row.lastSeenAt).toBe('')
+    expect(row.createdAt).toBe('')
   })
 })

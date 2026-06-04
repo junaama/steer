@@ -19,3 +19,12 @@ export interface EventRow {
   type: EventType
   payload: Record<string, unknown>
 }
+
+/** A registered daemon environment synced from the `environments` table. */
+export interface EnvironmentRow {
+  id: string
+  env: string | null
+  host: string
+  lastSeenAt: string
+  createdAt: string
+}

@@ -9,12 +9,12 @@ import { ConfirmModal } from './components/ConfirmModal.js'
 import { useSteerAuth, type SteerAuth } from './auth/AuthProvider.js'
 import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-fetch.js'
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
-import { createSessionsCollection, createEventsCollection } from './data/electric.js'
-import { decodeSessionRow, decodeEventRow } from './data/decode.js'
+import { createSessionsCollection, createEventsCollection, createEnvironmentsCollection } from './data/electric.js'
+import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './data/decode.js'
 import { buildTrace, latestPlan, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
-import type { SessionRow, EventRow } from './data/types.js'
+import type { SessionRow, EventRow, EnvironmentRow } from './data/types.js'
 
 interface Deps {
   serverUrl: string
@@ -116,10 +116,12 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     [authedFetch, write],
   )
   const sessions = useMemo(() => createSessionsCollection(deps), [deps])
+  const envCollection = useMemo(() => createEnvironmentsCollection(deps), [deps])
 
   // The Electric/TanStack live read + optimistic mutators are the external-SDK
   // boundary; cast locally so the rest of the app stays strictly typed.
   const live = useLiveQuery((q) => q.from({ s: sessions })) as unknown as { data?: SessionRow[] }
+  const envLive = useLiveQuery((q) => q.from({ e: envCollection })) as unknown as { data?: EnvironmentRow[] }
   const mutate = sessions as unknown as {
     insert: (row: SessionRow) => void
     update: (key: string, updater: (draft: SessionRow) => void) => void
@@ -129,6 +131,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
   // Electric delivers snake_case columns; decode to the app's strict camelCase
   // shape before projecting (raw synced rows otherwise have undefined lastStatus).
   const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeSessionRow)
+  const environmentRows = ((envLive.data ?? []) as unknown as Record<string, unknown>[]).map(decodeEnvironmentRow)
   const views: SessionView[] = rows.map((r) => ({
     id: r.id,
     title: r.title,

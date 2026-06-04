@@ -6,7 +6,7 @@ import './types.js'
 
 export type FetchImpl = typeof fetch
 
-const COLLECTIONS = new Set(['sessions', 'events', 'controls'])
+const COLLECTIONS = new Set(['sessions', 'events', 'controls', 'environments'])
 // Electric cursor/live params the client controls; everything safety-relevant
 // (table + where) is authored server-side and never trusted from the client.
 const PASSTHROUGH = ['offset', 'handle', 'live', 'cursor', 'replica'] as const
@@ -36,6 +36,9 @@ export function registerProxy(
 
     if (collection === 'sessions') {
       where = `user_id = ${sqlLiteral(req.userId)}`
+    } else if (collection === 'environments') {
+      // Global registry — every authenticated user sees all registered environments (R2).
+      where = '1 = 1'
     } else {
       const sessionId = query.session_id
       if (!sessionId) return reply.code(400).send({ error: 'session_id required' })

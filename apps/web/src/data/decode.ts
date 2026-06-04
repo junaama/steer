@@ -1,5 +1,5 @@
 import type { SessionStatus, EventType } from '@steer/schema'
-import type { SessionRow, EventRow } from './types.js'
+import type { SessionRow, EventRow, EnvironmentRow } from './types.js'
 
 type Raw = Record<string, unknown>
 
@@ -55,5 +55,15 @@ export function decodeEventRow(raw: Raw): EventRow {
     seq: Number(raw.seq ?? 0),
     type: raw.type as EventType,
     payload: asPayload(raw.payload),
+  }
+}
+
+export function decodeEnvironmentRow(raw: Raw): EnvironmentRow {
+  return {
+    id: String(raw.id ?? ''),
+    env: (raw.env as string | null | undefined) ?? null,
+    host: String(raw.host ?? ''),
+    lastSeenAt: String(val(raw, 'lastSeenAt', 'last_seen_at') ?? ''),
+    createdAt: String(val(raw, 'createdAt', 'created_at') ?? ''),
   }
 }
