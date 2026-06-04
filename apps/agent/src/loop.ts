@@ -116,6 +116,31 @@ function executedCalls(events: readonly StoredEvent[]): { key: string; result: s
 }
 
 /**
+ * Find a cached result for a prior web_fetch call on the same URL. Scans the
+ * event log for a tool_proposed/tool_result pair where the tool is web_fetch
+ * and the URL argument matches. Returns the cached result string, or undefined
+ * if no prior fetch exists for that URL.
+ */
+export function findCachedWebFetch(
+  events: readonly StoredEvent[],
+  url: string,
+): string | undefined {
+  const pendingFetches = new Map<string, string>() // toolCallId -> url
+  for (const e of events) {
+    const p = e.payload as { toolCallId?: unknown; name?: unknown; args?: unknown; result?: unknown }
+    if (typeof p.toolCallId !== 'string') continue
+    if (e.type === 'tool_proposed' && p.name === 'web_fetch') {
+      const args = p.args as { url?: unknown } | undefined
+      if (typeof args?.url === 'string') pendingFetches.set(p.toolCallId, args.url)
+    } else if (e.type === 'tool_result') {
+      const fetchedUrl = pendingFetches.get(p.toolCallId)
+      if (fetchedUrl === url) return String(p.result ?? '')
+    }
+  }
+  return undefined
+}
+
+/**
  * True when the model is about to repeat a tool call that has already produced
  * the same result REPEAT_LIMIT times running — a no-progress loop (e.g. listing
  * the same dir over and over after a task it can't finish). Identical results
@@ -219,6 +244,32 @@ export async function runSession(
       })
       await store.setStatus(sessionId, 'error')
       return
+    }
+
+    // URL dedup for web_fetch: if the same URL was already fetched in this
+    // session, return the cached result instead of re-fetching. This prevents
+    // the model from burning network requests and tripping the no-progress guard
+    // on duplicate fetches.
+    if (step.name === 'web_fetch') {
+      const url = (step.args as { url?: unknown }).url
+      if (typeof url === 'string') {
+        const cached = findCachedWebFetch(visibleEvents, url)
+        if (cached !== undefined) {
+          const kind = classifyTool(step.name)
+          await store.appendEvent(sessionId, 'tool_proposed', {
+            toolCallId: step.toolCallId,
+            name: step.name,
+            kind,
+            args: step.args,
+          })
+          await store.appendEvent(sessionId, 'tool_result', {
+            toolCallId: step.toolCallId,
+            name: step.name,
+            result: cached,
+          })
+          continue
+        }
+      }
     }
 
     // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
