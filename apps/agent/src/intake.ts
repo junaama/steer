@@ -23,12 +23,18 @@ const RUNNABLE = new Set<SessionStatus>(['starting', 'running', 'awaiting-approv
 
 /**
  * Pure projection of a batch of Electric messages to the sessions that should
- * run. Electric streams the raw Postgres shape (snake_case columns), and
- * re-emits a row on every change, so callers must dedupe (see the runner's
- * `active` set). Control messages (up-to-date / must-refetch) and move-outs
- * (deletes) carry no runnable row and are skipped.
+ * run *on this daemon's environment*. Electric streams the raw Postgres shape
+ * (snake_case columns), and re-emits a row on every change, so callers must
+ * dedupe (see the runner's `active` set). Control messages (up-to-date /
+ * must-refetch) and move-outs (deletes) carry no runnable row and are skipped.
+ *
+ * `myEnv` is this daemon's routing identity: `null` means the default daemon,
+ * which runs *unrouted* sessions (`environment` null/absent); a string means
+ * this daemon runs only sessions explicitly tagged with that environment. This
+ * is what makes "run it anywhere" deterministic — a row never reaches a daemon
+ * whose filesystem it was not meant for.
  */
-export function runnableFromMessages(messages: Message[]): SessionIntent[] {
+export function runnableFromMessages(messages: Message[], myEnv: string | null): SessionIntent[] {
   const out: SessionIntent[] = []
   for (const message of messages) {
     if (!isChangeMessage(message)) continue
@@ -37,6 +43,10 @@ export function runnableFromMessages(messages: Message[]): SessionIntent[] {
     const row = message.value
     const status = typeof row.last_status === 'string' ? row.last_status : ''
     if (!RUNNABLE.has(status as SessionStatus)) continue
+
+    const rowEnv = typeof row.environment === 'string' ? row.environment : null
+    const mine = myEnv === null ? rowEnv === null : rowEnv === myEnv
+    if (!mine) continue
 
     const id = typeof row.id === 'string' ? row.id : ''
     if (id === '') continue
@@ -59,15 +69,17 @@ export interface ShapeSubscriber {
 }
 
 /**
- * Subscribe to a sessions shape and invoke `onSession` for every runnable row.
+ * Subscribe to a sessions shape and invoke `onSession` for every runnable row
+ * routed to this daemon's environment (`myEnv` — see `runnableFromMessages`).
  * Returns the stream's unsubscribe function.
  */
 export function subscribeRunnable(
   stream: ShapeSubscriber,
   onSession: (intent: SessionIntent) => void,
+  myEnv: string | null,
   onError?: (error: Error) => void,
 ): () => void {
   return stream.subscribe((messages) => {
-    for (const intent of runnableFromMessages(messages)) onSession(intent)
+    for (const intent of runnableFromMessages(messages, myEnv)) onSession(intent)
   }, onError)
 }
