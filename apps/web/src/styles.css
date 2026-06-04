@@ -567,7 +567,7 @@ textarea {
 /* main / trace (U7) */
 .main {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   min-height: 0;
 }
 .detail-head {
@@ -603,6 +603,8 @@ textarea {
 }
 .trace-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
@@ -675,7 +677,8 @@ textarea {
   text-transform: uppercase;
 }
 .trace {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 22px 0 120px;
 }
