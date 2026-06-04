@@ -139,6 +139,14 @@ describe('run', () => {
     expect(out.join('\n')).toContain('default daemon')
   })
 
+  it('does not persist the sticky default env when session creation fails', async () => {
+    await saveCredentials(creds, home)
+    const client = { createSession: vi.fn(async () => { throw new SteerError(500, 'down') }) }
+    const { ctx } = harness(client)
+    expect(await run(ctx, { prompt: 'fix', env: 'laptop' })).toBe(1)
+    expect((await loadCredentials(home))!.defaultEnv).toBeUndefined()
+  })
+
   it('surfaces a SteerError from createSession', async () => {
     await saveCredentials(creds, home)
     const client = { createSession: vi.fn(async () => { throw new SteerError(401, 'unauthorized') }) }

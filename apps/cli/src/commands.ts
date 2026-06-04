@@ -115,9 +115,9 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
   }
 
   // Resolve the target environment: an explicit --env, else this machine's sticky
-  // default. A passed --env becomes the new sticky default so you type it once.
+  // default. (A passed --env becomes the new sticky default — but only after the
+  // session actually starts, so a failed create never pins a bad default.)
   const explicitEnv = opts.env?.trim()
-  if (explicitEnv) await saveCredentials({ ...creds, defaultEnv: explicitEnv }, ctx.home)
   const environment = explicitEnv || creds.defaultEnv?.trim() || undefined
 
   const id = makeSessionId()
@@ -134,6 +134,7 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
     ctx.io.error(`Could not start session: ${msg}`)
     return 1
   }
+  if (explicitEnv) await saveCredentials({ ...creds, defaultEnv: explicitEnv }, ctx.home)
   ctx.io.print(`Started session ${id}`)
   if (environment) {
     // The session is pinned to this environment; it stays queued until a daemon

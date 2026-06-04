@@ -52,6 +52,23 @@ describe('createRunner — claim gate', () => {
     expect(runOne).not.toHaveBeenCalled()
   })
 
+  it('skips without erroring the session when the claim itself throws (transient DB error)', async () => {
+    const setStatus = vi.fn(async () => {})
+    const store = fakeStore({
+      claimSession: vi.fn(async () => {
+        throw new Error('db blip')
+      }),
+      setStatus,
+    })
+    const runOne = vi.fn(async () => {})
+    const active = new Set<string>()
+    createRunner(noDb, active, 'laptop', { store, runOne })(intent('s1'))
+    await tick()
+    expect(runOne).not.toHaveBeenCalled()
+    expect(setStatus).not.toHaveBeenCalled() // never errors a session it may not own
+    expect(active.has('s1')).toBe(false)
+  })
+
   it('marks the session errored when the run throws', async () => {
     const setStatus = vi.fn(async () => {})
     const store = fakeStore({ claimSession: vi.fn(async () => true), setStatus })

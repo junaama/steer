@@ -49,11 +49,22 @@ export function createRunner(
     active.add(intent.id)
     void (async () => {
       try {
-        // Claim it for this environment; if another daemon owns it, do nothing.
-        if (!(await store.claimSession(intent.id, owner))) return
-        await runOne(store, intent)
-      } catch {
-        await store.setStatus(intent.id, 'error')
+        // The claim is a pre-run GATE. A lost claim (another daemon owns it) or a
+        // transient claim error is a no-op — never mark the session errored here,
+        // since it may be actively running on its real owner (setStatus has no
+        // owner guard). Only a failure of the actual run errors the session.
+        let won = false
+        try {
+          won = await store.claimSession(intent.id, owner)
+        } catch {
+          return
+        }
+        if (!won) return
+        try {
+          await runOne(store, intent)
+        } catch {
+          await store.setStatus(intent.id, 'error')
+        }
       } finally {
         active.delete(intent.id)
       }

@@ -102,6 +102,10 @@ services:
     build:
       context: .
       dockerfile: apps/agent/Dockerfile
+    # Pinned so the default daemon's claim owner (os.hostname()) stays STABLE
+    # across container recreation — otherwise a recreated default daemon could
+    # not re-claim a session left 'running' by a crash (crash-only resume).
+    hostname: steer-agent-default
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
       ELECTRIC_URL: ${ELECTRIC_URL:-http://electric:3000}
