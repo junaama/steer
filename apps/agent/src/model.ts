@@ -1,7 +1,7 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { openai } from '@ai-sdk/openai'
 import { generateText, jsonSchema, tool, type CoreMessage, type LanguageModel, type ToolSet } from 'ai'
-import { toolArgSchemas } from '@steer/schema'
+import { toolArgSchemas, TOOL_DESCRIPTIONS, type ToolName } from '@steer/schema'
 import type { ModelDriver, Step } from './loop.js'
 import type { StoredEvent } from './store.js'
 import { buildContext } from './context.js'
@@ -21,7 +21,7 @@ function createToolSet(names?: readonly string[], dynamicTools: readonly Dynamic
   const allowed = names ? new Set(names) : null
   const staticTools = Object.entries(toolArgSchemas)
     .filter(([name]) => allowed === null || allowed.has(name))
-    .map(([name, parameters]) => [name, tool({ description: name, parameters })] as const)
+    .map(([name, parameters]) => [name, tool({ description: TOOL_DESCRIPTIONS[name as ToolName] ?? name, parameters })] as const)
   const mcpTools = dynamicTools
     .filter((definition) => allowed === null || allowed.has(definition.name))
     .map(
@@ -66,6 +66,8 @@ export function createModelDriver(opts: {
         model: llm,
         system:
           'You are a coding agent. Make a brief plan, then use the provided tools to inspect and edit the workspace. ' +
+          'To find information or pages online, call web_search with a query and then web_fetch a URL it returns — never guess, invent, or assume a URL. ' +
+          'To find things on disk, use grep / glob / list_dir, or bash for a broad filesystem search (find, grep -r). ' +
           'Prefer edit_file or multi_edit over write_file for existing files. After any edit, run the project tests or build with run_command, read the failures, and keep fixing until verification passes. ' +
           'When the task is truly complete, reply with a short summary and call no tool.',
         messages,

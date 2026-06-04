@@ -7,6 +7,7 @@ import {
   list_dir,
   grep,
   glob,
+  web_search,
   web_fetch,
   write_file,
   todo_write,
@@ -262,6 +263,51 @@ describe('web_fetch', () => {
   it('fetches text from a url', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('hello body')))
     expect(await web_fetch({ url: 'http://example.test' }, ctx())).toBe('hello body')
+  })
+})
+
+describe('web_search', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // A realistic slice of DuckDuckGo's HTML endpoint: a uddg-redirect link, a
+  // protocol-relative link, and a direct https link — three href shapes.
+  const ddgHtml = `
+    <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa&amp;rut=x">First &amp; Best</a>
+    <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa">A <b>great</b> result.</a>
+    <a rel="nofollow" class="result__a" href="//example.org/b">Second</a>
+    <a class="result__snippet">Plain snippet.</a>
+    <a rel="nofollow" class="result__a" href="https://direct.example/c">Third</a>
+  `
+
+  it('searches the real endpoint and returns decoded titles, real URLs, and snippets', async () => {
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response(ddgHtml))
+    vi.stubGlobal('fetch', fetchMock)
+    const out = await web_search({ query: 'last30days skill' }, ctx())
+    // It SEARCHES (url-encoded query against the search endpoint), never guesses a domain.
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('html.duckduckgo.com/html/?q=last30days%20skill')
+    expect(out).toContain('1. First & Best')
+    expect(out).toContain('https://example.com/a') // uddg redirect decoded to the real target
+    expect(out).toContain('A great result.')
+    expect(out).toContain('2. Second')
+    expect(out).toContain('https://example.org/b') // protocol-relative href normalized
+    expect(out).toContain('3. Third')
+    expect(out).toContain('https://direct.example/c') // direct href passed through
+    expect(out).not.toContain('duckduckgo.com/l/') // never leaks the redirect wrapper
+    expect(out).not.toContain('&amp;') // entities decoded
+  })
+
+  it('reports no results when the page has none', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html><body>nothing here</body></html>')))
+    expect(await web_search({ query: 'zxqwv nope' }, ctx())).toBe('— no results for "zxqwv nope"')
+  })
+
+  it('caps results at 8', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => `<a class="result__a" href="https://e.test/${i}">R${i}</a>`).join('\n')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(many)))
+    const out = await web_search({ query: 'many' }, ctx())
+    expect(out).toContain('8. R7')
+    expect(out).not.toContain('9.')
+    expect(out).not.toContain('R8')
   })
 })
 

@@ -26,6 +26,7 @@ export const toolArgSchemas = {
   list_dir: z.object({ path: z.string().min(1), depth: z.number().int().min(1).max(10).optional() }),
   grep: z.object({ pattern: z.string().min(1), path: z.string().min(1), flags: z.string().optional() }),
   glob: z.object({ pattern: z.string().min(1) }),
+  web_search: z.object({ query: z.string().min(1) }),
   web_fetch: z.object({ url: z.string().url() }),
   todo_write: z.object({ items: z.array(todoItemSchema) }),
   diagnostics: z.object({ path: z.string().min(1) }),
@@ -55,6 +56,7 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   list_dir: 'read-only',
   grep: 'read-only',
   glob: 'read-only',
+  web_search: 'read-only',
   web_fetch: 'read-only',
   todo_write: 'read-only',
   diagnostics: 'read-only',
@@ -72,6 +74,39 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
 export const READ_ONLY_TOOLS: ToolName[] = (Object.keys(TOOL_POLICY) as ToolName[]).filter(
   (name) => TOOL_POLICY[name] === 'read-only',
 )
+
+/**
+ * Model-facing descriptions. The agent declares tools to the LLM with these, so
+ * the model knows what each does and when to reach for it — without them it gets
+ * only the bare tool name and improvises (e.g. inventing a URL to web_fetch
+ * instead of searching). Keep each one short and action-oriented.
+ */
+export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
+  read_file: 'Read a file from the workspace by path. Pass an optional line range like "10-40".',
+  list_dir: 'List the entries of a workspace directory.',
+  grep: 'Search file CONTENTS for a regular-expression pattern under a workspace path.',
+  glob: 'Find files whose path matches a glob pattern (e.g. "src/**/*.ts").',
+  web_search:
+    'Search the web and get back real result titles, URLs, and snippets for a query. ' +
+    'Use this to DISCOVER pages and current information — never guess or invent a URL. ' +
+    'Then call web_fetch on a returned URL to read it.',
+  web_fetch:
+    'Fetch the text of a specific URL you already have (e.g. one returned by web_search). ' +
+    'This does NOT search; only pass real URLs you obtained from web_search or the task.',
+  todo_write: 'Record or update your short working plan as a checklist.',
+  diagnostics: 'Report compiler/linter diagnostics for a file via the language server.',
+  definition: 'Jump to the definition of the symbol at a file position via the language server.',
+  references: 'Find references to the symbol at a file position via the language server.',
+  hover: 'Get hover info (types, docs) for the symbol at a file position via the language server.',
+  write_file: 'Create or overwrite a file with the given content. Prefer edit_file for existing files.',
+  edit_file: 'Replace an exact unique string in an existing file with new text.',
+  multi_edit: 'Apply several exact-string replacements to one file in a single call.',
+  bash:
+    'Run a shell command in the workspace. Use for broad filesystem search (`find`, `grep -r`), ' +
+    'running build/test commands, and anything the dedicated tools do not cover.',
+  run_command: 'Run a project command (build/test/lint) with an optional timeout and capture its output.',
+  task: 'Delegate a bounded sub-task to a scoped child agent with a chosen subset of tools.',
+}
 
 export function isToolName(name: string): name is ToolName {
   return Object.prototype.hasOwnProperty.call(toolArgSchemas, name)

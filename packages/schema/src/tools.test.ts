@@ -6,6 +6,7 @@ import {
   validateToolArgs,
   READ_ONLY_TOOLS,
   TOOL_POLICY,
+  TOOL_DESCRIPTIONS,
 } from './tools.js'
 
 describe('tool policy', () => {
@@ -15,6 +16,7 @@ describe('tool policy', () => {
       'list_dir',
       'grep',
       'glob',
+      'web_search',
       'web_fetch',
       'todo_write',
       'diagnostics',
@@ -41,7 +43,7 @@ describe('tool policy', () => {
 
   it('READ_ONLY_TOOLS contains exactly the read-only tools', () => {
     expect([...READ_ONLY_TOOLS].sort()).toEqual(
-      ['definition', 'diagnostics', 'glob', 'grep', 'hover', 'list_dir', 'read_file', 'references', 'todo_write', 'web_fetch'].sort(),
+      ['definition', 'diagnostics', 'glob', 'grep', 'hover', 'list_dir', 'read_file', 'references', 'todo_write', 'web_search', 'web_fetch'].sort(),
     )
     expect(READ_ONLY_TOOLS).not.toContain('write_file')
     expect(READ_ONLY_TOOLS).not.toContain('edit_file')
@@ -61,6 +63,17 @@ describe('tool policy', () => {
       expect(isToolName(name)).toBe(true)
     }
   })
+
+  it('every tool has a non-empty model-facing description', () => {
+    for (const name of Object.keys(TOOL_POLICY) as (keyof typeof TOOL_POLICY)[]) {
+      expect(TOOL_DESCRIPTIONS[name].length).toBeGreaterThan(0)
+      // The description must say more than the bare tool name — that emptiness is
+      // exactly what made the agent improvise instead of using the right tool.
+      expect(TOOL_DESCRIPTIONS[name]).not.toBe(name)
+    }
+    // web_search must steer the model away from inventing URLs.
+    expect(TOOL_DESCRIPTIONS.web_search).toMatch(/never guess|invent/i)
+  })
 })
 
 describe('validateToolArgs', () => {
@@ -68,6 +81,9 @@ describe('validateToolArgs', () => {
     expect(validateToolArgs('grep', { pattern: 'login', path: 'src/' })).toEqual({
       pattern: 'login',
       path: 'src/',
+    })
+    expect(validateToolArgs('web_search', { query: 'agentic commerce 2026' })).toEqual({
+      query: 'agentic commerce 2026',
     })
     expect(validateToolArgs('web_fetch', { url: 'https://example.com' })).toEqual({
       url: 'https://example.com',
@@ -143,6 +159,7 @@ describe('validateToolArgs', () => {
 
   it('rejects malformed args', () => {
     expect(() => validateToolArgs('grep', { pattern: '' })).toThrow()
+    expect(() => validateToolArgs('web_search', { query: '' })).toThrow()
     expect(() => validateToolArgs('web_fetch', { url: 'not-a-url' })).toThrow()
     expect(() => validateToolArgs('write_file', { path: 'x' })).toThrow() // missing content
     expect(() => validateToolArgs('edit_file', { path: 'x', old_string: 'old' })).toThrow()

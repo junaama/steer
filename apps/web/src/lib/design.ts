@@ -44,6 +44,7 @@ const TOOL_ICON: Record<string, string> = {
   glob: 'folder',
   list_dir: 'folder',
   ls: 'folder',
+  web_search: 'search',
   web_fetch: 'globe',
   write_file: 'file',
   edit_file: 'edit',
