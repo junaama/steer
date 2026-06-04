@@ -8,8 +8,8 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
-import { createDbStore, type AgentStore } from './store.js'
-import { runSession, ScriptedModel, completedSteps, type Step, type ModelDriver } from './loop.js'
+import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
+import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, type Step, type ModelDriver } from './loop.js'
 import { tools, type ToolFn } from './tools/index.js'
 
 const TEST_URL =
@@ -90,6 +90,24 @@ describe('runSession', () => {
     const messages = events.filter((e) => e.type === 'message')
     expect(messages).toHaveLength(4) // 3 model steps + the cap notice
     expect((messages[3]!.payload as { text: string }).text).toContain('safety limit')
+    expect(await status(id)).toBe('error')
+  })
+
+  it('stops with a no-progress message when the model repeats an identical call, before the cap', async () => {
+    const id = await newSession()
+    // The empty-dir flail: the model re-proposes the same read_file (same bytes
+    // back every time), each with a fresh toolCallId like a real model would.
+    let n = 0
+    const stuck: ModelDriver = {
+      next: async () => ({ t: 'tool', toolCallId: `tc${n++}`, name: 'read_file', args: { path: 'a.txt' } }),
+    }
+    await runSession(store, stuck, id, { workspaceRoot: workspace, tools, maxSteps: 80 })
+
+    const events = await store.listEvents(id)
+    expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(3) // REPEAT_LIMIT, not 80
+    const msg = events.filter((e) => e.type === 'message').at(-1)!.payload as { text: string }
+    expect(msg.text).toContain('read_file')
+    expect(msg.text).toContain('no progress')
     expect(await status(id)).toBe('error')
   })
 
@@ -495,5 +513,48 @@ describe('runSession', () => {
     expect(await status(id)).toBe('interrupted')
     const events = await store.listEvents(id)
     expect(events.some((e) => e.type === 'interrupted')).toBe(true)
+  })
+})
+
+describe('isNoProgressRepeat', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+  const prop = (seq: number, tcId: string, name: string, args: Record<string, unknown>): StoredEvent =>
+    sev(seq, 'tool_proposed', { toolCallId: tcId, name, kind: 'read-only', args })
+  const res = (seq: number, tcId: string, name: string, result: string): StoredEvent =>
+    sev(seq, 'tool_result', { toolCallId: tcId, name, result })
+  // n identical list_dir('.') calls that each return the same result.
+  const run = (n: number, result = 'same'): StoredEvent[] =>
+    Array.from({ length: n }, (_, i) => [
+      prop(i * 2, `t${i}`, 'list_dir', { path: '.' }),
+      res(i * 2 + 1, `t${i}`, 'list_dir', result),
+    ]).flat()
+  const same = { name: 'list_dir', args: { path: '.' } }
+
+  it('is false until the same call+result has run REPEAT_LIMIT times', () => {
+    expect(isNoProgressRepeat(run(2), same)).toBe(false)
+  })
+
+  it('is true on the proposal that would repeat an identical call once too many', () => {
+    expect(isNoProgressRepeat(run(3), same)).toBe(true)
+  })
+
+  it('is false when the repeated call returned changing results (that is progress)', () => {
+    const mixed = [...run(2, 'x'), prop(4, 'c', 'list_dir', { path: '.' }), res(5, 'c', 'list_dir', 'y')]
+    expect(isNoProgressRepeat(mixed, same)).toBe(false)
+  })
+
+  it('is false when the proposed call differs from the recent run', () => {
+    expect(isNoProgressRepeat(run(3), { name: 'list_dir', args: { path: 'src' } })).toBe(false)
+    expect(isNoProgressRepeat(run(3), { name: 'read_file', args: { path: '.' } })).toBe(false)
+  })
+
+  it('ignores non-tool events, orphan results, and non-terminal tool events', () => {
+    const evs = [
+      sev(0, 'message', { text: 'hi' }), // no toolCallId
+      res(1, 'orphan', 'list_dir', 'same'), // result with no prior proposal
+      sev(2, 'tool_started', { toolCallId: 'a' }), // has id but neither proposed nor result
+      ...run(3),
+    ]
+    expect(isNoProgressRepeat(evs, same)).toBe(true)
   })
 })

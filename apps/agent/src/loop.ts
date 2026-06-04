@@ -90,6 +90,49 @@ export function completedSteps(events: StoredEvent[]): number {
   return events.filter((e) => TERMINAL_TYPES.has(e.type)).length
 }
 
+// A model is "stuck" once it re-proposes a call that already returned the same
+// result this many times — far tighter than the step cap, which let dozens of
+// identical calls through before stopping.
+const REPEAT_LIMIT = 3
+
+function callKey(name: string, args: unknown): string {
+  return `${name}(${JSON.stringify(args)})`
+}
+
+/** Each executed tool call as (name+args key, result), in log order. */
+function executedCalls(events: readonly StoredEvent[]): { key: string; result: string }[] {
+  const keys = new Map<string, string>()
+  const out: { key: string; result: string }[] = []
+  for (const e of events) {
+    const p = e.payload as { toolCallId?: unknown; name?: unknown; args?: unknown; result?: unknown }
+    if (typeof p.toolCallId !== 'string') continue
+    if (e.type === 'tool_proposed') keys.set(p.toolCallId, callKey(String(p.name ?? ''), p.args))
+    else if (e.type === 'tool_result') {
+      const key = keys.get(p.toolCallId)
+      if (key !== undefined) out.push({ key, result: String(p.result ?? '') })
+    }
+  }
+  return out
+}
+
+/**
+ * True when the model is about to repeat a tool call that has already produced
+ * the same result REPEAT_LIMIT times running — a no-progress loop (e.g. listing
+ * the same dir over and over after a task it can't finish). Identical results
+ * mean no new information; differing results (polling a file as it changes) are
+ * progress and don't trip this. Bounds the flailing the step cap let run wild.
+ */
+export function isNoProgressRepeat(
+  events: readonly StoredEvent[],
+  step: { name: string; args: Record<string, unknown> },
+): boolean {
+  const calls = executedCalls(events)
+  if (calls.length < REPEAT_LIMIT) return false
+  const recent = calls.slice(-REPEAT_LIMIT)
+  const key = callKey(step.name, step.args)
+  return recent.every((c) => c.key === key && c.result === recent[0]!.result)
+}
+
 function parentEvents(events: StoredEvent[]): StoredEvent[] {
   return events.filter((event) => {
     const payload = event.payload as { parentToolCallId?: unknown }
@@ -162,6 +205,17 @@ export async function runSession(
     if (step.t === 'say') {
       await store.appendEvent(sessionId, 'message', { text: step.text })
       continue
+    }
+
+    // No-progress guard: a model re-proposing the same call after it returned
+    // the same result REPEAT_LIMIT times is stuck — stop with an explanation
+    // instead of spinning to the step cap.
+    if (isNoProgressRepeat(visibleEvents, step)) {
+      await store.appendEvent(sessionId, 'message', {
+        text: `Stopped: \`${step.name}\` repeated ${REPEAT_LIMIT}× with the same result and made no progress. The path may be outside this workspace, or the task can't be done in this environment — refine the task or steer it from the UI.`,
+      })
+      await store.setStatus(sessionId, 'error')
+      return
     }
 
     // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.

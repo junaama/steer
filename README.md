@@ -57,7 +57,7 @@ WORKSPACE_DIR=$(pwd) docker compose --env-file .env.local up   # agent works in 
 # or a specific project:  WORKSPACE_DIR=~/dev/my-app docker compose up
 ```
 
-It defaults to `./workspace` (a scratch dir in the repo). The web UI at **http://localhost:5173** is your remote control: watch every session live, and **approve / swap / reject** side-effecting tools (`write_file`, `bash`) — those pause for approval, so an autonomous CLI run uses read-only tools until you steer it from the UI. A run is capped at `STEER_MAX_STEPS` (default 40) so a stuck model can't loop forever.
+It defaults to `./workspace` (a scratch dir in the repo). The web UI at **http://localhost:5173** is your remote control: watch every session live, and **approve / swap / reject** side-effecting tools (`write_file`, `bash`) — those pause for approval, so an autonomous CLI run uses read-only tools until you steer it from the UI. A run stops as soon as a model repeats a tool call with no new result (a stuck loop), and is hard-capped at `STEER_MAX_STEPS` (default 80) as a backstop — so a stuck model can't loop forever.
 
 > The agent needs an LLM key **in its container** to actually run a session. `docker compose up` reads `.env` only — if your key lives in `.env.local`, start the stack with `docker compose --env-file .env.local up` (otherwise sessions get picked up but immediately go to `error`).
 
