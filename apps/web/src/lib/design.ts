@@ -46,10 +46,20 @@ const TOOL_ICON: Record<string, string> = {
   ls: 'folder',
   web_fetch: 'globe',
   write_file: 'file',
+  edit_file: 'edit',
+  multi_edit: 'edit',
   bash: 'terminal',
+  run_command: 'terminal',
+  todo_write: 'check',
+  task: 'swap',
+  diagnostics: 'search',
+  definition: 'search',
+  references: 'grep',
+  hover: 'search',
 }
 
 export function toolIcon(name: string): string {
+  if (name.startsWith('mcp:')) return 'globe'
   return TOOL_ICON[name] ?? 'wrench'
 }
 

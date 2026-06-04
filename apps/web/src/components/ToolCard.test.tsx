@@ -45,6 +45,25 @@ describe('ToolCard', () => {
     expect(screen.getByText('a match')).toBeInTheDocument()
   })
 
+  it('renders run_command output in a terminal block with its exit marker', () => {
+    render(
+      <ToolCard
+        tool={tool({
+          name: 'run_command',
+          toolKind: 'side-effecting',
+          status: 'done',
+          result: 'failing test output\n[exit 1]',
+          args: { command: 'pnpm test' },
+        })}
+      />,
+    )
+
+    const terminal = screen.getByTestId('run-command-result')
+    expect(terminal.tagName).toBe('PRE')
+    expect(terminal).toHaveTextContent('failing test output')
+    expect(terminal).toHaveTextContent('[exit 1]')
+  })
+
   it('shows the substitution audit', () => {
     render(<ToolCard tool={tool({ name: 'read', substitutedFrom: 'grep', status: 'substituted', result: 'r' })} />)
     expect(screen.getByText(/operator substituted/)).toBeInTheDocument()
