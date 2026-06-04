@@ -74,13 +74,19 @@ export function createRunner(
         let won = false
         try {
           won = await store.claimSession(intent.id, owner)
-        } catch {
+        } catch (err) {
+          // A transient claim error is a no-op (the session may be running on its
+          // real owner), but log it so a persistently failing claim is visible.
+          console.warn(`[agent] claim failed for ${intent.id}: ${errorMessage(err)}`)
           return
         }
         if (!won) return
         try {
           await runOne(store, intent)
-        } catch {
+        } catch (err) {
+          // Surface the cause: a swallowed run failure (bad model creds, a tool
+          // throw) otherwise leaves the session 'error' with no diagnostic.
+          console.error(`[agent] session ${intent.id} failed: ${errorMessage(err)}`, err)
           await store.setStatus(intent.id, 'error')
         }
       } finally {

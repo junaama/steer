@@ -52,7 +52,8 @@ describe('createRunner — claim gate', () => {
     expect(runOne).not.toHaveBeenCalled()
   })
 
-  it('skips without erroring the session when the claim itself throws (transient DB error)', async () => {
+  it('skips without erroring the session when the claim itself throws, but logs the cause', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const setStatus = vi.fn(async () => {})
     const store = fakeStore({
       claimSession: vi.fn(async () => {
@@ -66,19 +67,25 @@ describe('createRunner — claim gate', () => {
     await tick()
     expect(runOne).not.toHaveBeenCalled()
     expect(setStatus).not.toHaveBeenCalled() // never errors a session it may not own
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('claim failed for s1: db blip'))
     expect(active.has('s1')).toBe(false)
+    warn.mockRestore()
   })
 
-  it('marks the session errored when the run throws', async () => {
+  it('marks the session errored when the run throws AND logs the cause (no more silent error)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const setStatus = vi.fn(async () => {})
+    const cause = new Error('boom')
     const store = fakeStore({ claimSession: vi.fn(async () => true), setStatus })
     const runOne = vi.fn(async () => {
-      throw new Error('boom')
+      throw cause
     })
     const active = new Set<string>()
     createRunner(noDb, active, 'laptop', { store, runOne })(intent('s1'))
     await tick()
     expect(setStatus).toHaveBeenCalledWith('s1', 'error')
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('session s1 failed: boom'), cause)
     expect(active.has('s1')).toBe(false)
+    error.mockRestore()
   })
 })
