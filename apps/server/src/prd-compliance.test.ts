@@ -212,6 +212,16 @@ describe('PRD: docker-compose deliverable (C5, C10, C11, 3a)', () => {
     expect(keys.some((k) => k === 'SERVER_URL' || k === 'ELECTRIC_URL')).toBe(true)
   })
 
+  dockerIt('3a: the compose agent is the default (unrouted) daemon — STEER_ENV is empty', () => {
+    const env = config.services.agent!.environment ?? {}
+    const steerEnv = Array.isArray(env)
+      ? env.find((e) => e.startsWith('STEER_ENV='))?.slice('STEER_ENV='.length)
+      : env.STEER_ENV
+    // Present as a passthrough but empty by default → resolveEnvironmentId() => null,
+    // so the container claims sessions created without an environment (unchanged UX).
+    expect(steerEnv ?? '').toBe('')
+  })
+
   dockerIt('C12: migrations run as a one-shot before the server boots', () => {
     expect(config.services.migrate!.restart).toBe('no')
     expect(config.services.server!.depends_on).toHaveProperty('migrate')

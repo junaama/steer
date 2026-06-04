@@ -61,6 +61,27 @@ It defaults to `./workspace` (a scratch dir in the repo). The web UI at **http:/
 
 > The agent needs an LLM key **in its container** to actually run a session. `docker compose up` reads `.env` only — if your key lives in `.env.local`, start the stack with `docker compose --env-file .env.local up` (otherwise sessions get picked up but immediately go to `error`).
 
+### Run it anywhere — a local agent on your own machine
+
+The container agent above is the **default daemon**: it runs sessions created without an environment. To run the agent **on your own machine against your own files** (the PRD's "run anywhere — workstation, sandbox, container"), start a *local* daemon bound to an environment and route sessions to it.
+
+A session carries an `environment`, and exactly one daemon **claims** it (single-owner). So the same session — viewed in the web UI, continued with a follow-up — always targets that environment's filesystem; it can never run on the wrong machine. A session whose environment has no daemon connected simply **queues** until you start one there.
+
+```bash
+# 1. Expose the data plane to your host (the dev override publishes Electric to 127.0.0.1:3000):
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres electric migrate server
+
+# 2. Run a daemon on your machine, pointed at the project it should work on:
+STEER_WORKSPACE_ROOT=~/dev/my-app pnpm --filter @steer/agent agent --env laptop
+#    (the `agent` script defaults DATABASE_URL→:54321 and ELECTRIC_URL→:3000 — the
+#     endpoints the dev override exposes. This is the `steer-agent` daemon bin.)
+
+# 3. Route a session to that environment — it runs against ~/dev/my-app's files:
+./steer "list the files in this project" --env laptop   # --env is sticky after first use
+```
+
+The web UI now shows the session with an `env: laptop` badge, and any follow-up (`./steer "…" --session <id>`) resumes on the **same** machine. Sessions started without `--env` (or from the web "New session") stay unrouted and run on the container's `/workspace`, exactly as before — so `docker compose up` is unchanged.
+
 ---
 
 ## Verify it's real sync

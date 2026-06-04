@@ -111,6 +111,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      # This container is the DEFAULT (unrouted) daemon: with STEER_ENV empty it
+      # claims sessions created without an environment (web "New session", or
+      # `steer` with no --env), preserving the single-daemon behavior. Set
+      # STEER_ENV=<id> to make it a named environment instead; run a daemon on
+      # another host (`steer-agent --env <id>`) to execute sessions routed there.
+      # See README → "Run it anywhere".
+      STEER_ENV: ${STEER_ENV:-}
       # The agent does its coding work in this dir (the mounted workspace below).
       STEER_WORKSPACE_ROOT: /workspace
       STEER_MAX_STEPS: ${STEER_MAX_STEPS:-40}
