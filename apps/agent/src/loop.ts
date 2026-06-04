@@ -165,6 +165,38 @@ function parentEvents(events: StoredEvent[]): StoredEvent[] {
   })
 }
 
+/** A single todo in the agent's plan — the shape the `todo_write` tool writes. */
+type PlanItem = { text: string; status: 'pending' | 'in_progress' | 'done' }
+
+/**
+ * Fold the event log to the current plan: the items of the latest `plan` event,
+ * or null when the session has no plan. This is the same projection the UI's todo
+ * panel and the LLM context build from the log, so reconciling against it keeps
+ * every view of the plan consistent.
+ */
+export function latestPlan(events: readonly StoredEvent[]): PlanItem[] | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!
+    if (event.type !== 'plan') continue
+    const items = (event.payload as { items?: unknown }).items
+    return Array.isArray(items) ? (items as PlanItem[]) : null
+  }
+  return null
+}
+
+/**
+ * Reconcile the plan with a finished run. A completed session must not leave todos
+ * reading `pending`/`in_progress` — that's the drift where a "Complete" session's
+ * plan still looked unfinished. Returns the items with every status set to `done`,
+ * or null when there is nothing to reconcile (no plan, or it already reads as all
+ * done) so the caller appends a `plan` event only when it actually changes the log.
+ */
+export function planMarkedAllDone(items: readonly PlanItem[] | null): PlanItem[] | null {
+  if (!items || items.length === 0) return null
+  if (items.every((item) => item.status === 'done')) return null
+  return items.map((item): PlanItem => ({ ...item, status: 'done' }))
+}
+
 export interface RunOptions {
   /** The session's working directory — where relative paths resolve, shells run. */
   workspaceRoot: string
@@ -223,6 +255,11 @@ export async function runSession(
     const step = await driver.next(visibleEvents, cursor)
 
     if (step.t === 'complete') {
+      // Link the plan artifact to the loop's progress: on a clean finish, flip any
+      // still-open todos to done so the synced plan can't read as unfinished while
+      // the session shows Complete. Append-only — every plan projection follows.
+      const finishedPlan = planMarkedAllDone(latestPlan(events))
+      if (finishedPlan) await store.appendEvent(sessionId, 'plan', { items: finishedPlan })
       await store.setStatus(sessionId, 'completed')
       return
     }
