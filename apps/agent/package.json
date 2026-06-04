@@ -17,6 +17,7 @@
     "@ai-sdk/anthropic": "^1.0.6",
     "@ai-sdk/openai": "^1.0.11",
     "@electric-sql/client": "^1.5.20",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "ai": "^4.0.30",
     "drizzle-orm": "^0.38.3",
     "pg": "^8.13.1"

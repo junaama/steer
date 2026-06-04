@@ -122,9 +122,10 @@ services:
       # another host (`steer-agent --env <id>`) to execute sessions routed there.
       # See README → "Run it anywhere".
       STEER_ENV: ${STEER_ENV:-}
+      STEER_MCP_SERVERS: ${STEER_MCP_SERVERS:-}
       # The agent does its coding work in this dir (the mounted workspace below).
       STEER_WORKSPACE_ROOT: /workspace
-      STEER_MAX_STEPS: ${STEER_MAX_STEPS:-40}
+      STEER_MAX_STEPS: ${STEER_MAX_STEPS:-80}
     # Mount a real project for the agent to work on — like `claude -p` in your cwd.
     # Point it anywhere:  WORKSPACE_DIR=~/dev/myapp docker compose up
     # Default is ./workspace (a scratch dir in the repo).

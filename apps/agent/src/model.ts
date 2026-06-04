@@ -1,6 +1,6 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { openai } from '@ai-sdk/openai'
-import { generateText, tool, type CoreMessage, type LanguageModel, type ToolSet } from 'ai'
+import { generateText, jsonSchema, tool, type CoreMessage, type LanguageModel, type ToolSet } from 'ai'
 import { toolArgSchemas } from '@steer/schema'
 import type { ModelDriver, Step } from './loop.js'
 import type { StoredEvent } from './store.js'
@@ -9,13 +9,32 @@ import { decideStep } from './decide.js'
 import { resolveProvider, resolveModelId, type Provider } from './provider.js'
 import type { SubagentDriverInput } from './subagent.js'
 
-function createToolSet(names?: readonly string[]): ToolSet {
+export interface DynamicToolDefinition {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+}
+
+type JsonSchemaInput = Parameters<typeof jsonSchema<Record<string, unknown>>>[0]
+
+function createToolSet(names?: readonly string[], dynamicTools: readonly DynamicToolDefinition[] = []): ToolSet {
   const allowed = names ? new Set(names) : null
-  return Object.fromEntries(
-    Object.entries(toolArgSchemas)
-      .filter(([name]) => allowed === null || allowed.has(name))
-      .map(([name, parameters]) => [name, tool({ description: name, parameters })]),
+  const staticTools = Object.entries(toolArgSchemas)
+    .filter(([name]) => allowed === null || allowed.has(name))
+    .map(([name, parameters]) => [name, tool({ description: name, parameters })] as const)
+  const mcpTools = dynamicTools
+    .filter((definition) => allowed === null || allowed.has(definition.name))
+    .map(
+      (definition) =>
+        [
+          definition.name,
+          tool({
+            description: definition.description,
+            parameters: jsonSchema<Record<string, unknown>>(definition.inputSchema as JsonSchemaInput),
+          }),
+        ] as const,
   )
+  return Object.fromEntries([...staticTools, ...mcpTools])
 }
 
 const toolSet = createToolSet()
@@ -30,10 +49,15 @@ function selectModel(provider: Provider, modelId: string): LanguageModel {
  * execution and operators can intercept. External integration boundary (needs an
  * API key); exercised via the live demo, not unit tests.
  */
-export function createModelDriver(opts: { model: string; task: string | null }): ModelDriver {
+export function createModelDriver(opts: {
+  model: string
+  task: string | null
+  dynamicTools?: readonly DynamicToolDefinition[]
+}): ModelDriver {
   const provider = resolveProvider(process.env)
   const modelId = resolveModelId(provider, opts.model, process.env)
   const llm = selectModel(provider, modelId)
+  const tools = opts.dynamicTools && opts.dynamicTools.length > 0 ? createToolSet(undefined, opts.dynamicTools) : toolSet
 
   return {
     async next(events: StoredEvent[]): Promise<Step> {
@@ -45,7 +69,7 @@ export function createModelDriver(opts: { model: string; task: string | null }):
           'Prefer edit_file or multi_edit over write_file for existing files. After any edit, run the project tests or build with run_command, read the failures, and keep fixing until verification passes. ' +
           'When the task is truly complete, reply with a short summary and call no tool.',
         messages,
-        tools: toolSet,
+        tools,
         maxSteps: 1,
       })
       const call = result.toolCalls[0]
@@ -59,11 +83,13 @@ export function createModelDriver(opts: { model: string; task: string | null }):
   }
 }
 
-export function createSubagentDriver(opts: { model: string } & SubagentDriverInput): ModelDriver {
+export function createSubagentDriver(
+  opts: { model: string; dynamicTools?: readonly DynamicToolDefinition[] } & SubagentDriverInput,
+): ModelDriver {
   const provider = resolveProvider(process.env)
   const modelId = resolveModelId(provider, opts.model, process.env)
   const llm = selectModel(provider, modelId)
-  const scopedToolSet = createToolSet(opts.tools)
+  const scopedToolSet = createToolSet(opts.tools, opts.dynamicTools)
 
   return {
     async next(events: StoredEvent[]): Promise<Step> {

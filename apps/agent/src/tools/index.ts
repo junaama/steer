@@ -2,9 +2,11 @@ import { readFile, readdir, writeFile, stat } from 'node:fs/promises'
 import { resolve, relative, isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { READ_ONLY_TOOLS, validateToolArgs } from '@steer/schema'
+import { createLspClient } from '../lsp.js'
 import { runSubagent, type SubagentDriverFactory } from '../subagent.js'
 import type { AgentStore } from '../store.js'
 import { edit_file, multi_edit } from './edit.js'
+import { makeDefinitionTool, makeDiagnosticsTool, makeHoverTool, makeReferencesTool } from './lsp.js'
 import { run_command } from './run.js'
 
 export interface ToolContext {
@@ -133,6 +135,8 @@ export const bash: ToolFn = (args, ctx) =>
     child.on('close', (code) => resolvePromise(out + (code === 0 ? '' : `\n[exit ${code}]`)))
   })
 
+const lsp = createLspClient()
+
 export const tools: Record<string, ToolFn> = {
   read_file,
   list_dir,
@@ -140,6 +144,10 @@ export const tools: Record<string, ToolFn> = {
   glob,
   web_fetch,
   todo_write,
+  diagnostics: makeDiagnosticsTool(lsp),
+  definition: makeDefinitionTool(lsp),
+  references: makeReferencesTool(lsp),
+  hover: makeHoverTool(lsp),
   write_file,
   edit_file,
   multi_edit,

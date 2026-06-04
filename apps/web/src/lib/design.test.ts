@@ -25,6 +25,16 @@ describe('status meta', () => {
 })
 
 describe('status meta accessors (crash guard)', () => {
+  it('resolves every declared session status through the accessor', () => {
+    for (const s of SESSION_STATUSES) {
+      expect(sessionStatusMeta(s)).toBe(SESSION_STATUS_META[s])
+    }
+  })
+  it('resolves every declared tool status through the accessor', () => {
+    for (const s of TOOL_STATUSES) {
+      expect(toolStatusMeta(s)).toBe(TOOL_STATUS_META[s])
+    }
+  })
   it('returns the real meta for a known status', () => {
     expect(sessionStatusMeta('completed')).toBe(SESSION_STATUS_META.completed)
     expect(toolStatusMeta('done')).toBe(TOOL_STATUS_META.done)
@@ -44,6 +54,27 @@ describe('toolIcon', () => {
     expect(toolIcon('read_file')).toBe('read')
     expect(toolIcon('grep')).toBe('grep')
     expect(toolIcon('write_file')).toBe('file')
+  })
+  it('maps every new coding-agent tool to a non-wrench icon', () => {
+    const expected = {
+      edit_file: 'edit',
+      multi_edit: 'edit',
+      run_command: 'terminal',
+      todo_write: 'check',
+      task: 'swap',
+      diagnostics: 'search',
+      definition: 'search',
+      references: 'grep',
+      hover: 'search',
+    }
+
+    for (const [tool, icon] of Object.entries(expected)) {
+      expect(toolIcon(tool)).toBe(icon)
+      expect(toolIcon(tool)).not.toBe('wrench')
+    }
+  })
+  it('maps dynamic MCP tools to a non-wrench icon', () => {
+    expect(toolIcon('mcp:files/read')).toBe('globe')
   })
   it('falls back to wrench for unknown tools', () => {
     expect(toolIcon('mystery')).toBe('wrench')

@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 type: feat
 created: 2026-06-03
 title: "feat: bring Steer's agent up to coding-agent parity (surgical edits, self-verify loop, todo, subagents, LSP, MCP)"

@@ -17,6 +17,24 @@ const ROLE_LABEL: Record<'message' | 'thinking' | 'user', string> = {
   user: 'you',
 }
 
+const EXIT_MARKER_RE = /\n?(\[exit \d+\])$/
+
+function ResultBlock({ toolName, result }: { toolName: string; result: string }): JSX.Element {
+  if (toolName !== 'run_command') return <div className="result-block">{result}</div>
+
+  const match = result.match(EXIT_MARKER_RE)
+  const output = match ? result.slice(0, match.index) : result
+  const exitMarker = match?.[1]
+  return (
+    <pre className="result-block result-terminal" data-testid="run-command-result">
+      <code>
+        <span>{output}</span>
+        {exitMarker && <span className="terminal-exit">{exitMarker}</span>}
+      </code>
+    </pre>
+  )
+}
+
 function TraceChild({ item }: { item: TraceItem }): JSX.Element {
   if (item.kind === 'tool') return <ToolCard tool={item} />
   return (
@@ -69,7 +87,7 @@ export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactN
         {tool.result !== null && (
           <div className="tc-section">
             <div className="tc-label">{tool.after !== undefined ? 'Outcome' : 'Result'}</div>
-            <div className="result-block">{tool.result}</div>
+            <ResultBlock toolName={tool.name} result={tool.result} />
           </div>
         )}
       </div>

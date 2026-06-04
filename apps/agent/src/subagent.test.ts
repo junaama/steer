@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { sessions, controls, type EventType } from '@steer/schema'
+import { sessions, controls, READ_ONLY_TOOLS, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore } from './store.js'
 import { runSession, ScriptedModel, type ModelDriver, type Step } from './loop.js'
@@ -110,7 +110,7 @@ describe('task subagent integration', () => {
       {
         description: 'Inspect a file',
         prompt: 'Read a.txt and summarize it',
-        tools: ['read_file', 'list_dir', 'grep', 'glob', 'web_fetch', 'todo_write'],
+        tools: READ_ONLY_TOOLS,
       },
     ])
 

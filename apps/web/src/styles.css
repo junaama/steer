@@ -813,6 +813,19 @@ textarea {
   max-height: 220px;
   overflow: auto;
 }
+.result-terminal {
+  margin: 0;
+  background: color-mix(in oklab, var(--bg-inset) 80%, black);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+.result-terminal code {
+  display: grid;
+  gap: 7px;
+}
+.terminal-exit {
+  color: var(--text-dim);
+}
 .audit {
   display: flex;
   align-items: center;
