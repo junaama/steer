@@ -117,6 +117,35 @@ describe('PRD 4d-iii / 2a / 1b: create a session', () => {
     expect(row!.userId).toBe(myId)
     expect(row!.userId).not.toBe('attacker')
   })
+
+  it('§3a: persists the environment routing key when supplied', async () => {
+    const token = await signup('a@steer.dev')
+    const res = await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't', environment: 'laptop' })
+    expect(res.statusCode).toBe(200)
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.environment).toBe('laptop')
+    expect(row!.claimedBy).toBeNull() // claim is daemon-written, never on insert
+  })
+
+  it('§3a: leaves the session unrouted (environment=null) when omitted', async () => {
+    const token = await signup('a@steer.dev')
+    await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't' })
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.environment).toBeNull()
+  })
+
+  it('C2: ignores a client-supplied claimed_by (daemon-owned field)', async () => {
+    const token = await signup('a@steer.dev')
+    await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't', claimedBy: 'attacker' })
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.claimedBy).toBeNull()
+  })
+
+  it('rejects an empty environment string (400)', async () => {
+    const token = await signup('a@steer.dev')
+    const res = await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't', environment: '' })
+    expect(res.statusCode).toBe(400)
+  })
 })
 
 describe('PRD 4d-ii / C2: viewing & scoping the session list', () => {

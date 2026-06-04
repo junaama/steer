@@ -37,15 +37,19 @@ async function applyWrite(
           title: z.string().min(1),
           task: z.string().optional(),
           model: z.string().optional(),
+          // The environment to route this session to (the user's routing intent).
+          environment: z.string().min(1).optional(),
         })
         .parse(payload)
       // user_id is injected server-side; any client-supplied user_id is ignored.
+      // claimed_by is likewise never accepted here — only the trusted daemon sets it.
       await tx.insert(sessions).values({
         id: p.id,
         userId,
         title: p.title,
         task: p.task ?? null,
         model: p.model ?? 'sonnet',
+        environment: p.environment ?? null,
         lastStatus: 'starting',
       })
       return
