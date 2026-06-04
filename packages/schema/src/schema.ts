@@ -60,10 +60,22 @@ export const sessions = pgTable(
     task: text('task'),
     lastStatus: text('last_status').$type<SessionStatus>().notNull().default('idle'),
     model: text('model').notNull().default('sonnet'),
+    // The environment (daemon identity) this session is routed to. Null = "unrouted"
+    // → claimed by the default daemon (the one with no STEER_ENV set). The user's
+    // routing intent: it may be set on insert but never re-bound via update (v1).
+    environment: text('environment'),
+    // The daemon that has claimed this session (single-owner). Daemon-written only —
+    // never accepted from a client. Stable per environment so re-queue and
+    // crash-resume re-claim idempotently.
+    claimedBy: text('claimed_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('sessions_user_idx').on(t.userId)],
+  (t) => [
+    index('sessions_user_idx').on(t.userId),
+    // Intake filters runnable sessions by environment, so index it.
+    index('sessions_environment_idx').on(t.environment),
+  ],
 )
 
 export const events = pgTable(

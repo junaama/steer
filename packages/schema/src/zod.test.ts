@@ -6,6 +6,7 @@ import {
   parseEventPayload,
   parseControlPayload,
   sessionInsertSchema,
+  sessionSelectSchema,
 } from './zod.js'
 
 describe('event payloads', () => {
@@ -152,5 +153,57 @@ describe('drizzle-zod row schemas', () => {
 
   it('rejects a session insert missing required fields', () => {
     expect(() => sessionInsertSchema.parse({ id: 's1' })).toThrow()
+  })
+
+  it('accepts environment and claimed_by on a session insert', () => {
+    const r = sessionInsertSchema.parse({
+      id: 's1',
+      userId: 'u1',
+      title: 'Add auth',
+      environment: 'laptop',
+      claimedBy: 'laptop',
+    })
+    expect(r.environment).toBe('laptop')
+    expect(r.claimedBy).toBe('laptop')
+  })
+
+  it('treats environment and claimed_by as optional/nullable on insert', () => {
+    const r = sessionInsertSchema.parse({ id: 's1', userId: 'u1', title: 't' })
+    expect(r.environment ?? null).toBeNull()
+    expect(r.claimedBy ?? null).toBeNull()
+  })
+
+  it('round-trips environment and claimed_by on a selected session row', () => {
+    const r = sessionSelectSchema.parse({
+      id: 's1',
+      userId: 'u1',
+      title: 'Add auth',
+      task: null,
+      lastStatus: 'starting',
+      model: 'sonnet',
+      environment: 'laptop',
+      claimedBy: 'laptop',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    expect(r.environment).toBe('laptop')
+    expect(r.claimedBy).toBe('laptop')
+  })
+
+  it('accepts null environment and claimed_by on a selected session row', () => {
+    const r = sessionSelectSchema.parse({
+      id: 's1',
+      userId: 'u1',
+      title: 'Add auth',
+      task: null,
+      lastStatus: 'idle',
+      model: 'sonnet',
+      environment: null,
+      claimedBy: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    expect(r.environment).toBeNull()
+    expect(r.claimedBy).toBeNull()
   })
 })
