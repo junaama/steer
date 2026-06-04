@@ -68,6 +68,10 @@ export const sessions = pgTable(
     // never accepted from a client. Stable per environment so re-queue and
     // crash-resume re-claim idempotently.
     claimedBy: text('claimed_by'),
+    // Absolute directory the session operates in — the cwd the CLI was launched
+    // from. The owning daemon runs the session here, *within* its root (the
+    // sandbox boundary). Null = run at the daemon's root, as before.
+    workdir: text('workdir'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

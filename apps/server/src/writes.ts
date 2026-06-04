@@ -39,6 +39,10 @@ async function applyWrite(
           model: z.string().optional(),
           // The environment to route this session to (the user's routing intent).
           environment: z.string().min(1).optional(),
+          // The absolute directory the session should run in (the CLI's cwd). Stored
+          // verbatim; the owning daemon confines it to its root, so an out-of-root
+          // path is harmless here (untrusted-but-stored, like environment).
+          workdir: z.string().min(1).optional(),
         })
         .parse(payload)
       // user_id is injected server-side; any client-supplied user_id is ignored.
@@ -50,6 +54,7 @@ async function applyWrite(
         task: p.task ?? null,
         model: p.model ?? 'sonnet',
         environment: p.environment ?? null,
+        workdir: p.workdir ?? null,
         lastStatus: 'starting',
       })
       return

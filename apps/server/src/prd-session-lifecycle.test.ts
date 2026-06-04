@@ -134,6 +134,16 @@ describe('PRD 4d-iii / 2a / 1b: create a session', () => {
     expect(row!.environment).toBeNull()
   })
 
+  it('persists the workdir (the CLI cwd) when supplied, null when omitted', async () => {
+    const token = await signup('a@steer.dev')
+    await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't', workdir: '/dev/projectA' })
+    await writeAs(token, 'sessions', 'insert', { id: 's2', title: 't' })
+    const [a] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    const [b] = await db.select().from(sessions).where(eq(sessions.id, 's2'))
+    expect(a!.workdir).toBe('/dev/projectA')
+    expect(b!.workdir).toBeNull()
+  })
+
   it('C2: ignores a client-supplied claimed_by (daemon-owned field)', async () => {
     const token = await signup('a@steer.dev')
     await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't', claimedBy: 'attacker' })
