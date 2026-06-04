@@ -18,6 +18,7 @@ import {
   run_command,
 } from './index.js'
 import { applyEdits } from './edit.js'
+import { TOOL_DESCRIPTIONS } from '@steer/schema'
 
 let root: string
 
@@ -308,6 +309,12 @@ describe('web_search', () => {
     expect(out).toContain('8. R7')
     expect(out).not.toContain('9.')
     expect(out).not.toContain('R8')
+  })
+
+  it('description instructs the model to web_fetch the top 3 result URLs', () => {
+    const desc = TOOL_DESCRIPTIONS.web_search
+    expect(desc).toMatch(/top 3/)
+    expect(desc).toMatch(/web_fetch/)
   })
 })
 

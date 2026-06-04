@@ -89,7 +89,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   web_search:
     'Search the web and get back real result titles, URLs, and snippets for a query. ' +
     'Use this to DISCOVER pages and current information — never guess or invent a URL. ' +
-    'Then call web_fetch on a returned URL to read it.',
+    'After searching, call web_fetch on the top 3 result URLs to compare before answering.',
   web_fetch:
     'Fetch the text of a specific URL you already have (e.g. one returned by web_search). ' +
     'This does NOT search; only pass real URLs you obtained from web_search or the task.',

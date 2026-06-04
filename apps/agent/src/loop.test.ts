@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
-import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, type Step, type ModelDriver } from './loop.js'
+import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, findCachedWebFetch, type Step, type ModelDriver } from './loop.js'
 import { tools, type ToolFn } from './tools/index.js'
 
 const TEST_URL =
@@ -556,5 +556,92 @@ describe('isNoProgressRepeat', () => {
       ...run(3),
     ]
     expect(isNoProgressRepeat(evs, same)).toBe(true)
+  })
+})
+
+describe('findCachedWebFetch', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+  const wfProp = (seq: number, tcId: string, url: string): StoredEvent =>
+    sev(seq, 'tool_proposed', { toolCallId: tcId, name: 'web_fetch', kind: 'read-only', args: { url } })
+  const wfRes = (seq: number, tcId: string, result: string): StoredEvent =>
+    sev(seq, 'tool_result', { toolCallId: tcId, name: 'web_fetch', result })
+
+  it('returns the cached result when a prior web_fetch on the same URL exists', () => {
+    const events: StoredEvent[] = [
+      wfProp(0, 'tc1', 'https://example.com/page'),
+      wfRes(1, 'tc1', 'page content here'),
+    ]
+    expect(findCachedWebFetch(events, 'https://example.com/page')).toBe('page content here')
+  })
+
+  it('returns undefined when no prior web_fetch exists', () => {
+    expect(findCachedWebFetch([], 'https://example.com/page')).toBeUndefined()
+  })
+
+  it('returns undefined when a prior web_fetch used a different URL', () => {
+    const events: StoredEvent[] = [
+      wfProp(0, 'tc1', 'https://example.com/other'),
+      wfRes(1, 'tc1', 'other content'),
+    ]
+    expect(findCachedWebFetch(events, 'https://example.com/page')).toBeUndefined()
+  })
+
+  it('returns undefined when a web_fetch proposal exists but has no result yet', () => {
+    const events: StoredEvent[] = [wfProp(0, 'tc1', 'https://example.com/page')]
+    expect(findCachedWebFetch(events, 'https://example.com/page')).toBeUndefined()
+  })
+
+  it('returns the first matching result when the same URL was fetched multiple times', () => {
+    const events: StoredEvent[] = [
+      wfProp(0, 'tc1', 'https://example.com/page'),
+      wfRes(1, 'tc1', 'first fetch'),
+      wfProp(2, 'tc2', 'https://example.com/page'),
+      wfRes(3, 'tc2', 'second fetch'),
+    ]
+    expect(findCachedWebFetch(events, 'https://example.com/page')).toBe('first fetch')
+  })
+
+  it('ignores non-web_fetch tool proposals when scanning for a URL', () => {
+    const events: StoredEvent[] = [
+      sev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'read_file', kind: 'read-only', args: { path: 'a.txt' } }),
+      sev(1, 'tool_result', { toolCallId: 'tc1', name: 'read_file', result: 'file content' }),
+    ]
+    expect(findCachedWebFetch(events, 'https://example.com/page')).toBeUndefined()
+  })
+})
+
+describe('runSession web_fetch dedup', () => {
+  it('returns the cached result on a duplicate web_fetch without tripping the no-progress guard', async () => {
+    const id = await newSession()
+    const fetchUrl = 'https://example.com/cached-page'
+    const fakeFetch: ToolFn = async (args) => {
+      const url = (args as { url?: string }).url ?? ''
+      return `content of ${url}`
+    }
+
+    // The model calls web_fetch on the same URL twice; the second call should
+    // hit the cache and succeed rather than triggering the repeat guard.
+    const script: Step[] = [
+      { t: 'tool', toolCallId: 'wf1', name: 'web_fetch', args: { url: fetchUrl } },
+      { t: 'tool', toolCallId: 'wf2', name: 'web_fetch', args: { url: fetchUrl } },
+      { t: 'say', text: 'done' },
+    ]
+
+    await runSession(store, new ScriptedModel(script), id, {
+      workspaceRoot: workspace,
+      tools: { ...tools, web_fetch: fakeFetch },
+    })
+
+    const events = await store.listEvents(id)
+    // Both calls produce a tool_proposed + tool_result; session completes (not error).
+    expect(events.filter((e) => e.type === 'tool_proposed')).toHaveLength(2)
+    expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(2)
+    const results = events
+      .filter((e) => e.type === 'tool_result')
+      .map((e) => (e.payload as { result: string }).result)
+    // Both results are the cached content string.
+    expect(results[0]).toBe(`content of ${fetchUrl}`)
+    expect(results[1]).toBe(`content of ${fetchUrl}`)
+    expect(await status(id)).toBe('completed')
   })
 })

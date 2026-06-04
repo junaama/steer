@@ -35,3 +35,6 @@ dogfood-output/
 
 # local compound-engineering consent/config (machine-specific)
 .compound-engineering/config.local.yaml
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/
