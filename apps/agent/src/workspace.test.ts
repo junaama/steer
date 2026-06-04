@@ -31,9 +31,9 @@ describe('resolveSessionWorkspace', () => {
     expect(resolveSessionWorkspace('/dev', undefined)).toBe('/dev')
   })
 
-  it('ignores a workdir outside the root (a daemon can only serve its own root)', () => {
-    expect(resolveSessionWorkspace('/home/me', '/etc')).toBe('/home/me')
-    expect(resolveSessionWorkspace('/home/me', '/home/other/proj')).toBe('/home/me')
+  it('maps a host-absolute workdir under the root (container that mounted the host fs)', () => {
+    expect(resolveSessionWorkspace('/host', '/Users/me/proj')).toBe('/host/Users/me/proj')
+    expect(resolveSessionWorkspace('/home/me', '/etc')).toBe('/home/me/etc')
   })
 
   it('normalizes and accepts the root itself as a workdir', () => {

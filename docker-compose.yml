@@ -42,9 +42,13 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
-    # No host port — only the server proxies to it over the compose network.
-    expose:
-      - "3000"
+    # Published to the host so an EXTERNAL run-anywhere daemon (`./steer-agent
+    # --env <id>` on this machine) can subscribe to the sessions shape directly —
+    # the server still proxies to it over the compose network too. Dev only:
+    # Electric runs with ELECTRIC_INSECURE here; production keeps it unpublished
+    # behind the server's auth proxy and swaps in ELECTRIC_SECRET.
+    ports:
+      - "3000:3000"
 
   # One-shot: runs DB migrations, then exits 0 before the app boots.
   migrate:
@@ -123,14 +127,19 @@ services:
       # See README → "Run it anywhere".
       STEER_ENV: ${STEER_ENV:-}
       STEER_MCP_SERVERS: ${STEER_MCP_SERVERS:-}
-      # The agent does its coding work in this dir (the mounted workspace below).
-      STEER_WORKSPACE_ROOT: /workspace
+      # The daemon's ROOT (sandbox boundary). The host filesystem is mounted at
+      # /host below, so the agent can operate on any directory `steer` is run from
+      # (the CLI sends its cwd; the daemon maps it under this root). Whole-machine
+      # reach is intentional — see README "Run it anywhere" for the trust model.
+      STEER_WORKSPACE_ROOT: /host
       STEER_MAX_STEPS: ${STEER_MAX_STEPS:-80}
-    # Mount a real project for the agent to work on — like `claude -p` in your cwd.
-    # Point it anywhere:  WORKSPACE_DIR=~/dev/myapp docker compose up
-    # Default is ./workspace (a scratch dir in the repo).
+    # Mount the host filesystem so a session bound to your cwd lands on real files
+    # regardless of which machine pulled the stack down. Narrow it for a sandboxed
+    # deploy:  WORKSPACE_DIR=~/dev/myapp docker compose up  (then cwd-routing only
+    # resolves paths under that dir). On macOS/Windows, Docker Desktop must be
+    # allowed to share the mounted path (Settings → Resources → File sharing).
     volumes:
-      - ${WORKSPACE_DIR:-./workspace}:/workspace
+      - ${WORKSPACE_DIR:-/}:/host
     depends_on:
       server:
         condition: service_healthy
