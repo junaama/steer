@@ -27,6 +27,8 @@ export const EVENT_TYPES = [
   'tool_result',
   'tool_cancelled',
   'tool_substituted',
+  'subagent_started',
+  'subagent_result',
   'plan',
   'status_changed',
   'interrupted',

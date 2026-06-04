@@ -2,9 +2,10 @@ import type { Db } from './db.js'
 import { createDbStore } from './store.js'
 import { runSession } from './loop.js'
 import { tools } from './tools/index.js'
-import { createModelDriver } from './model.js'
+import { createModelDriver, createSubagentDriver } from './model.js'
 import { resolveWorkspaceRoot } from './workspace.js'
 import type { SessionIntent } from './intake.js'
+import type { SubagentDriverInput } from './subagent.js'
 
 /**
  * Build the callback the Electric intake invokes for each runnable session.
@@ -24,9 +25,10 @@ export function createRunner(db: Db, active: Set<string>): (intent: SessionInten
         // operates on the real files where it was launched (PRD: "runs the
         // sessions on the host it's running on").
         const workspaceRoot = resolveWorkspaceRoot(process.env)
-        const maxSteps = Number(process.env.STEER_MAX_STEPS) || 40
+        const maxSteps = Number(process.env.STEER_MAX_STEPS) || 80
         const driver = createModelDriver({ model: intent.model, task: intent.task })
-        await runSession(store, driver, intent.id, { workspaceRoot, tools, maxSteps })
+        const subagentDriver = (input: SubagentDriverInput) => createSubagentDriver({ ...input, model: intent.model })
+        await runSession(store, driver, intent.id, { workspaceRoot, tools, maxSteps, subagentDriver })
       } catch {
         await store.setStatus(intent.id, 'error')
       } finally {

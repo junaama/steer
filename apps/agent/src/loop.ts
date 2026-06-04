@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { classifyTool, validateToolArgs } from '@steer/schema'
 import type { AgentStore, StoredEvent } from './store.js'
 import type { ToolFn } from './tools/index.js'
+import type { SubagentDriverFactory } from './subagent.js'
 import { applyEdits, type Edit } from './tools/edit.js'
 import { resolveTool } from './intercept.js'
 
@@ -89,6 +90,13 @@ export function completedSteps(events: StoredEvent[]): number {
   return events.filter((e) => TERMINAL_TYPES.has(e.type)).length
 }
 
+function parentEvents(events: StoredEvent[]): StoredEvent[] {
+  return events.filter((event) => {
+    const payload = event.payload as { parentToolCallId?: unknown }
+    return typeof payload.parentToolCallId !== 'string'
+  })
+}
+
 export interface RunOptions {
   workspaceRoot: string
   tools: Record<string, ToolFn>
@@ -97,6 +105,8 @@ export interface RunOptions {
   pollMs?: number
   /** Safety ceiling on completed steps before a run is force-stopped (default 80). */
   maxSteps?: number
+  /** Factory for in-process child loops used by the task tool. */
+  subagentDriver?: SubagentDriverFactory
 }
 
 /**
@@ -128,7 +138,8 @@ export async function runSession(
     }
 
     const events = await store.listEvents(sessionId)
-    const cursor = completedSteps(events)
+    const visibleEvents = parentEvents(events)
+    const cursor = completedSteps(visibleEvents)
     // Safety ceiling: stop a model that loops without finishing (e.g. repeating a
     // tool that yields nothing) instead of burning unbounded inference calls.
     if (cursor >= maxSteps) {
@@ -138,7 +149,7 @@ export async function runSession(
       await store.setStatus(sessionId, 'error')
       return
     }
-    const step = await driver.next(events, cursor)
+    const step = await driver.next(visibleEvents, cursor)
 
     if (step.t === 'complete') {
       await store.setStatus(sessionId, 'completed')
@@ -176,6 +187,8 @@ export async function runSession(
       pollMs: options.pollMs ?? 200,
       allowlist,
       signal: options.signal,
+      subagentDriver: options.subagentDriver,
+      maxSteps,
     })
     if (outcome === 'interrupted') {
       const events = await store.listEvents(sessionId)

@@ -1,13 +1,23 @@
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises'
 import { resolve, relative, isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { validateToolArgs } from '@steer/schema'
+import { READ_ONLY_TOOLS, validateToolArgs } from '@steer/schema'
+import { runSubagent, type SubagentDriverFactory } from '../subagent.js'
+import type { AgentStore } from '../store.js'
 import { edit_file, multi_edit } from './edit.js'
 import { run_command } from './run.js'
 
 export interface ToolContext {
   workspaceRoot: string
   signal?: AbortSignal
+  subagent?: {
+    store: AgentStore
+    sessionId: string
+    parentToolCallId: string
+    driverFor: SubagentDriverFactory
+    tools: Record<string, ToolFn>
+    maxSteps?: number
+  }
 }
 
 export type ToolFn = (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>
@@ -78,6 +88,34 @@ export const todo_write: ToolFn = async (args) => {
   return `Updated plan · ${items.length} items`
 }
 
+export const task: ToolFn = async (args, ctx) => {
+  const { description, prompt, tools: requestedTools } = validateToolArgs('task', args) as {
+    description: string
+    prompt: string
+    tools?: string[]
+  }
+  const subagent = ctx.subagent
+  if (!subagent) return 'error: task subagent runner is unavailable'
+
+  const allowedTools = (requestedTools ?? READ_ONLY_TOOLS).filter((name) =>
+    Object.prototype.hasOwnProperty.call(subagent.tools, name),
+  )
+  const driver = subagent.driverFor({ description, prompt, tools: allowedTools })
+  return runSubagent(
+    {
+      store: subagent.store,
+      sessionId: subagent.sessionId,
+      parentToolCallId: subagent.parentToolCallId,
+      driver,
+      tools: subagent.tools,
+      workspaceRoot: ctx.workspaceRoot,
+      signal: ctx.signal,
+      maxSteps: subagent.maxSteps,
+    },
+    { description, prompt, allowedTools },
+  )
+}
+
 export const write_file: ToolFn = async (args, ctx) => {
   const { path, content } = validateToolArgs('write_file', args) as { path: string; content: string }
   await writeFile(safeJoin(ctx.workspaceRoot, path), content, 'utf8')
@@ -107,6 +145,7 @@ export const tools: Record<string, ToolFn> = {
   multi_edit,
   bash,
   run_command,
+  task,
 }
 
 export { edit_file, multi_edit, run_command }

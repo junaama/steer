@@ -87,4 +87,33 @@ describe('ToolCard', () => {
     expect(screen.getByText('Outcome')).toBeInTheDocument()
     expect(screen.getByText('Wrote a')).toBeInTheDocument()
   })
+
+  it('renders nested subagent children recursively', () => {
+    render(
+      <ToolCard
+        tool={tool({
+          name: 'task',
+          toolKind: 'side-effecting',
+          status: 'done',
+          result: 'done',
+          children: [
+            { kind: 'thinking', key: 't-1', text: 'looking' },
+            tool({
+              key: 'tool-child-read',
+              toolCallId: 'child-read',
+              name: 'read_file',
+              args: { path: 'a.txt' },
+              result: 'hello',
+            }),
+          ],
+        })}
+      />,
+    )
+
+    const nested = screen.getByTestId('tool-tc1-children')
+    expect(within(nested).getByText('Subagent')).toBeInTheDocument()
+    expect(within(nested).getByText('looking')).toBeInTheDocument()
+    expect(within(nested).getByTestId('tool-child-read')).toBeInTheDocument()
+    expect(within(nested).getByText('hello')).toBeInTheDocument()
+  })
 })

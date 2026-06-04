@@ -64,6 +64,50 @@ describe('buildTrace', () => {
     expect(tool.result).toBe('match')
   })
 
+  it('nests child subagent events under the parent task tool card', () => {
+    const items = buildTrace([
+      ev(0, 'tool_proposed', {
+        toolCallId: 'task1',
+        name: 'task',
+        kind: 'side-effecting',
+        args: { description: 'Inspect', prompt: 'Read a file' },
+      }),
+      ev(1, 'subagent_started', { parentToolCallId: 'task1', description: 'Inspect', prompt: 'Read a file' }),
+      ev(2, 'thinking', { parentToolCallId: 'task1', text: 'looking' }),
+      ev(3, 'tool_proposed', {
+        parentToolCallId: 'task1',
+        toolCallId: 'child-read',
+        name: 'read_file',
+        kind: 'read-only',
+        args: { path: 'a.txt' },
+      }),
+      ev(4, 'tool_result', {
+        parentToolCallId: 'task1',
+        toolCallId: 'child-read',
+        name: 'read_file',
+        result: 'hello',
+      }),
+      ev(5, 'message', { parentToolCallId: 'task1', text: 'done' }),
+      ev(6, 'subagent_result', { parentToolCallId: 'task1', summary: 'done' }),
+      ev(7, 'tool_result', { toolCallId: 'task1', name: 'task', result: 'done' }),
+    ])
+
+    expect(items).toHaveLength(1)
+    const tool = items[0] as ToolItem
+    expect(tool.name).toBe('task')
+    expect(tool.result).toBe('done')
+    expect(tool.children?.map((item) => item.kind)).toEqual(['thinking', 'tool', 'message'])
+    expect((tool.children?.[1] as ToolItem).result).toBe('hello')
+  })
+
+  it('keeps child-tagged events out of the top-level trace', () => {
+    const items = buildTrace([
+      ev(0, 'message', { parentToolCallId: 'task1', text: 'child-only' }),
+      ev(1, 'message', { text: 'parent-only' }),
+    ])
+    expect(items).toEqual([{ kind: 'message', key: 'm-1', text: 'parent-only' }])
+  })
+
   it('starts side-effecting tools in the pending (approval) state', () => {
     const items = buildTrace([
       ev(0, 'tool_proposed', { toolCallId: 'w1', name: 'write_file', kind: 'side-effecting', args: { path: 'a' } }),

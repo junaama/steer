@@ -26,7 +26,10 @@ export const eventInsertSchema = createInsertSchema(events)
 export const controlInsertSchema = createInsertSchema(controls)
 
 const toolRef = z.object({ toolCallId: z.string().min(1), name: z.string().min(1) })
+const childTag = z.object({ parentToolCallId: z.string().min(1).optional() })
+const childToolRef = toolRef.merge(childTag)
 const textPayload = z.object({ text: z.string() })
+const childTextPayload = textPayload.merge(childTag)
 export const planItemSchema = z.object({
   text: z.string().min(1),
   status: z.enum(['pending', 'in_progress', 'done']),
@@ -34,25 +37,36 @@ export const planItemSchema = z.object({
 
 /** Event payload schema keyed by `event.type`. */
 export const eventPayloadSchemas = {
-  message: textPayload,
+  message: childTextPayload,
   // A follow-up instruction the user sends to an existing session (multi-turn).
   user_message: textPayload,
-  thinking: textPayload,
-  tool_proposed: z.object({
-    toolCallId: z.string().min(1),
-    name: z.string().min(1),
-    kind: toolKindSchema,
-    args: z.record(z.unknown()),
-    // For file-writing tools: prior + proposed content so the UI renders a diff.
-    before: z.string().optional(),
-    after: z.string().optional(),
-  }),
-  tool_started: toolRef,
+  thinking: childTextPayload,
+  tool_proposed: z
+    .object({
+      toolCallId: z.string().min(1),
+      name: z.string().min(1),
+      kind: toolKindSchema,
+      args: z.record(z.unknown()),
+      // For file-writing tools: prior + proposed content so the UI renders a diff.
+      before: z.string().optional(),
+      after: z.string().optional(),
+    })
+    .merge(childTag),
+  tool_started: childToolRef,
   tool_stdout_delta: toolRef.extend({ chunk: z.string() }),
   // `edited` marks a result the operator ran with hand-edited args (U9 audit).
-  tool_result: toolRef.extend({ result: z.string(), edited: z.boolean().optional() }),
-  tool_cancelled: toolRef.extend({ reason: z.string().optional() }),
-  tool_substituted: toolRef.extend({ from: z.string().min(1), result: z.string() }),
+  tool_result: childToolRef.extend({ result: z.string(), edited: z.boolean().optional() }),
+  tool_cancelled: childToolRef.extend({ reason: z.string().optional() }),
+  tool_substituted: childToolRef.extend({ from: z.string().min(1), result: z.string() }),
+  subagent_started: z.object({
+    parentToolCallId: z.string().min(1),
+    description: z.string(),
+    prompt: z.string(),
+  }),
+  subagent_result: z.object({
+    parentToolCallId: z.string().min(1),
+    summary: z.string(),
+  }),
   plan: z.object({ items: z.array(planItemSchema) }),
   status_changed: z.object({ status: sessionStatusSchema }),
   interrupted: z.object({ atSeq: z.number().int().nonnegative() }),

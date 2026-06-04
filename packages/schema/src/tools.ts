@@ -30,6 +30,11 @@ export const toolArgSchemas = {
   }),
   bash: z.object({ command: z.string().min(1) }),
   run_command: z.object({ command: z.string().min(1), timeoutMs: z.number().int().positive().optional() }),
+  task: z.object({
+    description: z.string().min(1),
+    prompt: z.string().min(1),
+    tools: z.array(z.string().min(1)).optional(),
+  }),
 } as const
 
 export type ToolName = keyof typeof toolArgSchemas
@@ -47,6 +52,7 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   multi_edit: 'side-effecting',
   bash: 'side-effecting',
   run_command: 'side-effecting',
+  task: 'side-effecting',
 }
 
 export const READ_ONLY_TOOLS: ToolName[] = (Object.keys(TOOL_POLICY) as ToolName[]).filter(

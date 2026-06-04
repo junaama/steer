@@ -7,10 +7,18 @@ import type { StoredEvent } from './store.js'
 import { buildContext } from './context.js'
 import { decideStep } from './decide.js'
 import { resolveProvider, resolveModelId, type Provider } from './provider.js'
+import type { SubagentDriverInput } from './subagent.js'
 
-const toolSet: ToolSet = Object.fromEntries(
-  Object.entries(toolArgSchemas).map(([name, parameters]) => [name, tool({ description: name, parameters })]),
-)
+function createToolSet(names?: readonly string[]): ToolSet {
+  const allowed = names ? new Set(names) : null
+  return Object.fromEntries(
+    Object.entries(toolArgSchemas)
+      .filter(([name]) => allowed === null || allowed.has(name))
+      .map(([name, parameters]) => [name, tool({ description: name, parameters })]),
+  )
+}
+
+const toolSet = createToolSet()
 
 function selectModel(provider: Provider, modelId: string): LanguageModel {
   return provider === 'openai' ? openai(modelId) : anthropic(modelId)
@@ -38,6 +46,35 @@ export function createModelDriver(opts: { model: string; task: string | null }):
           'When the task is truly complete, reply with a short summary and call no tool.',
         messages,
         tools: toolSet,
+        maxSteps: 1,
+      })
+      const call = result.toolCalls[0]
+      return decideStep(events, {
+        toolCall: call
+          ? { toolCallId: call.toolCallId, name: call.toolName, args: call.args as Record<string, unknown> }
+          : undefined,
+        text: result.text,
+      })
+    },
+  }
+}
+
+export function createSubagentDriver(opts: { model: string } & SubagentDriverInput): ModelDriver {
+  const provider = resolveProvider(process.env)
+  const modelId = resolveModelId(provider, opts.model, process.env)
+  const llm = selectModel(provider, modelId)
+  const scopedToolSet = createToolSet(opts.tools)
+
+  return {
+    async next(events: StoredEvent[]): Promise<Step> {
+      const messages = buildContext(opts.prompt, events) as CoreMessage[]
+      const result = await generateText({
+        model: llm,
+        system:
+          `You are a scoped child coding agent delegated to: ${opts.description}. ` +
+          'Use only the provided tools. Keep the work bounded to the sub-task and finish with a concise summary.',
+        messages,
+        tools: scopedToolSet,
         maxSteps: 1,
       })
       const call = result.toolCalls[0]

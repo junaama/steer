@@ -26,6 +26,8 @@ export interface ToolItem {
   /** For file-writing tools: prior + proposed content (U12 diff). */
   before?: string
   after?: string
+  /** Child subagent trace items nested under this tool call. */
+  children?: TraceItem[]
 }
 
 export type TraceItem = MessageItem | ToolItem
@@ -34,6 +36,11 @@ export interface RawEvent {
   seq: number
   type: EventType
   payload: Record<string, unknown>
+}
+
+function parentToolCallId(event: RawEvent): string | undefined {
+  const value = event.payload.parentToolCallId
+  return typeof value === 'string' ? value : undefined
 }
 
 export function latestPlan(events: readonly RawEvent[]): PlanItem[] | null {
@@ -55,11 +62,20 @@ export function latestPlan(events: readonly RawEvent[]): PlanItem[] | null {
  */
 export function buildTrace(events: readonly RawEvent[], task?: string | null): TraceItem[] {
   const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  const items = buildTraceLevel(sorted, undefined)
+  if (task && task.trim()) {
+    return [{ kind: 'user', key: 'task', text: task }, ...items]
+  }
+  return items
+}
+
+function buildTraceLevel(sorted: readonly RawEvent[], parentId: string | undefined): TraceItem[] {
+  const levelEvents = sorted.filter((event) => parentToolCallId(event) === parentId)
   const order: string[] = []
   const messages = new Map<string, MessageItem>()
   const tools = new Map<string, ToolItem>()
 
-  for (const e of sorted) {
+  for (const e of levelEvents) {
     if (e.type === 'message' || e.type === 'thinking' || e.type === 'user_message') {
       // user_message is the operator's follow-up turn — render it as a user bubble.
       // Annotated so adding a new message-like EventType here fails at the source.
@@ -116,9 +132,12 @@ export function buildTrace(events: readonly RawEvent[], task?: string | null): T
     }
   }
 
-  const items = order.map((key) => messages.get(key) ?? tools.get(key)).filter((x): x is TraceItem => x !== undefined)
-  if (task && task.trim()) {
-    return [{ kind: 'user', key: 'task', text: task }, ...items]
-  }
-  return items
+  return order
+    .map((key) => messages.get(key) ?? tools.get(key))
+    .filter((x): x is TraceItem => x !== undefined)
+    .map((item) => {
+      if (item.kind !== 'tool') return item
+      const children = buildTraceLevel(sorted, item.toolCallId)
+      return children.length > 0 ? { ...item, children } : item
+    })
 }

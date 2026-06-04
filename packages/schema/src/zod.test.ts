@@ -19,9 +19,32 @@ describe('event payloads', () => {
     expect(parseEventPayload('message', { text: 'hello' })).toEqual({ text: 'hello' })
   })
 
+  it('round-trips a child-tagged message payload', () => {
+    const p = { text: 'child note', parentToolCallId: 'task1' }
+    expect(parseEventPayload('message', p)).toEqual(p)
+  })
+
   it('round-trips a valid tool_proposed payload', () => {
     const p = { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: { pattern: 'x' } }
     expect(parseEventPayload('tool_proposed', p)).toEqual(p)
+  })
+
+  it('round-trips subagent lifecycle payloads', () => {
+    expect(
+      parseEventPayload('subagent_started', {
+        parentToolCallId: 'task1',
+        description: 'Inspect config',
+        prompt: 'Read the config file',
+      }),
+    ).toEqual({
+      parentToolCallId: 'task1',
+      description: 'Inspect config',
+      prompt: 'Read the config file',
+    })
+    expect(parseEventPayload('subagent_result', { parentToolCallId: 'task1', summary: 'done' })).toEqual({
+      parentToolCallId: 'task1',
+      summary: 'done',
+    })
   })
 
   it('round-trips a valid plan payload with each todo status', () => {
@@ -55,6 +78,11 @@ describe('event payloads', () => {
 
   it('round-trips a tool_result carrying the edited audit flag', () => {
     const p = { toolCallId: 'tc1', name: 'read_file', result: 'contents', edited: true }
+    expect(parseEventPayload('tool_result', p)).toEqual(p)
+  })
+
+  it('round-trips a child-tagged tool_result', () => {
+    const p = { toolCallId: 'tc1', name: 'read_file', result: 'contents', parentToolCallId: 'task1' }
     expect(parseEventPayload('tool_result', p)).toEqual(p)
   })
 

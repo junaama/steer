@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react'
-import type { ToolItem } from '../lib/trace.js'
+import type { ToolItem, TraceItem } from '../lib/trace.js'
 import { computeDiff } from '../lib/diff.js'
 import { StatBadge } from './StatBadge.js'
 import { DiffView } from './DiffView.js'
@@ -9,6 +9,22 @@ function argSummary(args: Record<string, unknown>): string {
   if (keys.length === 0) return ''
   const first = String(args[keys[0]!])
   return keys.length > 1 ? `${first}  · +${keys.length - 1}` : first
+}
+
+const ROLE_LABEL: Record<'message' | 'thinking' | 'user', string> = {
+  message: 'assistant',
+  thinking: 'thinking',
+  user: 'you',
+}
+
+function TraceChild({ item }: { item: TraceItem }): JSX.Element {
+  if (item.kind === 'tool') return <ToolCard tool={item} />
+  return (
+    <div className={`ev ev-${item.kind}`}>
+      <div className="ev-role">{ROLE_LABEL[item.kind]}</div>
+      <div className="ev-body">{item.text}</div>
+    </div>
+  )
 }
 
 export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactNode }): JSX.Element {
@@ -57,6 +73,19 @@ export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactN
           </div>
         )}
       </div>
+
+      {tool.children && tool.children.length > 0 && (
+        <div className="subpanel" data-testid={`tool-${tool.toolCallId}-children`}>
+          <div className="sp-head">
+            <span>Subagent</span>
+          </div>
+          <div className="argeditor">
+            {tool.children.map((item) => (
+              <TraceChild key={item.key} item={item} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {controls}
     </div>

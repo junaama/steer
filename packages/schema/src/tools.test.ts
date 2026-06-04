@@ -17,7 +17,7 @@ describe('tool policy', () => {
   })
 
   it('classifies side-effecting tools as side-effecting', () => {
-    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash', 'run_command'] as const) {
+    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash', 'run_command', 'task'] as const) {
       expect(classifyTool(name)).toBe('side-effecting')
       expect(isReadOnly(name)).toBe(false)
     }
@@ -37,6 +37,7 @@ describe('tool policy', () => {
     expect(READ_ONLY_TOOLS).not.toContain('multi_edit')
     expect(READ_ONLY_TOOLS).not.toContain('bash')
     expect(READ_ONLY_TOOLS).not.toContain('run_command')
+    expect(READ_ONLY_TOOLS).not.toContain('task')
   })
 
   it('isToolName narrows known names', () => {
@@ -85,6 +86,17 @@ describe('validateToolArgs', () => {
       timeoutMs: 1000,
     })
     expect(validateToolArgs('run_command', { command: 'pnpm test' })).toEqual({ command: 'pnpm test' })
+    expect(validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts' })).toEqual({
+      description: 'Inspect',
+      prompt: 'Read src/index.ts',
+    })
+    expect(
+      validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts', tools: ['read_file'] }),
+    ).toEqual({
+      description: 'Inspect',
+      prompt: 'Read src/index.ts',
+      tools: ['read_file'],
+    })
     expect(
       validateToolArgs('todo_write', {
         items: [
@@ -111,6 +123,9 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('run_command', { command: '' })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 0 })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 1.5 })).toThrow()
+    expect(() => validateToolArgs('task', { description: '', prompt: 'Read' })).toThrow()
+    expect(() => validateToolArgs('task', { description: 'Inspect', prompt: '' })).toThrow()
+    expect(() => validateToolArgs('task', { description: 'Inspect', prompt: 'Read', tools: [''] })).toThrow()
     expect(() => validateToolArgs('todo_write', { items: [{ text: 'x', status: 'blocked' }] })).toThrow()
     expect(() => validateToolArgs('todo_write', { items: [{ status: 'pending' }] })).toThrow()
   })

@@ -10,6 +10,7 @@ import {
   web_fetch,
   write_file,
   todo_write,
+  task,
   bash,
   edit_file,
   multi_edit,
@@ -84,6 +85,14 @@ describe('todo_write', () => {
 
   it('rejects malformed todo items', async () => {
     await expect(todo_write({ items: [{ text: 'write tests', status: 'blocked' }] }, ctx())).rejects.toThrow()
+  })
+})
+
+describe('task', () => {
+  it('returns an error when no subagent runner is available', async () => {
+    await expect(task({ description: 'Inspect', prompt: 'Read src/login.ts' }, ctx())).resolves.toBe(
+      'error: task subagent runner is unavailable',
+    )
   })
 })
 

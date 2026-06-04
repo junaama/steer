@@ -1,6 +1,7 @@
 import { classifyTool } from '@steer/schema'
 import type { AgentStore, StoredControl } from './store.js'
 import type { ToolFn } from './tools/index.js'
+import type { SubagentDriverFactory } from './subagent.js'
 
 export interface ToolStep {
   toolCallId: string
@@ -16,6 +17,10 @@ export interface ResolveDeps {
   allowlist?: Set<string>
   /** Run-level abort (daemon shutdown) — lets a waiting gate exit cleanly. */
   signal?: AbortSignal
+  /** Factory for scoped child model drivers used by the task tool. */
+  subagentDriver?: SubagentDriverFactory
+  /** Child-loop safety ceiling passed through to task subagents. */
+  maxSteps?: number
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -59,8 +64,19 @@ export async function resolveTool(
   const runTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
     const impl = deps.tools[name]
     if (!impl) return `error: unknown tool ${name}`
+    const subagent =
+      name === 'task' && deps.subagentDriver
+        ? {
+            store,
+            sessionId,
+            parentToolCallId: step.toolCallId,
+            driverFor: deps.subagentDriver,
+            tools: deps.tools,
+            maxSteps: deps.maxSteps,
+          }
+        : undefined
     try {
-      return await impl(args, { workspaceRoot: deps.workspaceRoot, signal: deps.signal })
+      return await impl(args, { workspaceRoot: deps.workspaceRoot, signal: deps.signal, subagent })
     } catch (err) {
       return `error: ${errorMessage(err)}`
     }
