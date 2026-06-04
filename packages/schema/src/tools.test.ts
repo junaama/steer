@@ -10,7 +10,18 @@ import {
 
 describe('tool policy', () => {
   it('classifies every read-only tool as read-only', () => {
-    for (const name of ['read_file', 'list_dir', 'grep', 'glob', 'web_fetch', 'todo_write'] as const) {
+    for (const name of [
+      'read_file',
+      'list_dir',
+      'grep',
+      'glob',
+      'web_fetch',
+      'todo_write',
+      'diagnostics',
+      'definition',
+      'references',
+      'hover',
+    ] as const) {
       expect(classifyTool(name)).toBe('read-only')
       expect(isReadOnly(name)).toBe(true)
     }
@@ -30,7 +41,7 @@ describe('tool policy', () => {
 
   it('READ_ONLY_TOOLS contains exactly the read-only tools', () => {
     expect([...READ_ONLY_TOOLS].sort()).toEqual(
-      ['glob', 'grep', 'list_dir', 'read_file', 'todo_write', 'web_fetch'].sort(),
+      ['definition', 'diagnostics', 'glob', 'grep', 'hover', 'list_dir', 'read_file', 'references', 'todo_write', 'web_fetch'].sort(),
     )
     expect(READ_ONLY_TOOLS).not.toContain('write_file')
     expect(READ_ONLY_TOOLS).not.toContain('edit_file')
@@ -86,6 +97,22 @@ describe('validateToolArgs', () => {
       timeoutMs: 1000,
     })
     expect(validateToolArgs('run_command', { command: 'pnpm test' })).toEqual({ command: 'pnpm test' })
+    expect(validateToolArgs('diagnostics', { path: 'src/index.ts' })).toEqual({ path: 'src/index.ts' })
+    expect(validateToolArgs('definition', { path: 'src/index.ts', line: 4, character: 10 })).toEqual({
+      path: 'src/index.ts',
+      line: 4,
+      character: 10,
+    })
+    expect(validateToolArgs('references', { path: 'src/index.ts', line: 4, character: 10 })).toEqual({
+      path: 'src/index.ts',
+      line: 4,
+      character: 10,
+    })
+    expect(validateToolArgs('hover', { path: 'src/index.ts', line: 4, character: 10 })).toEqual({
+      path: 'src/index.ts',
+      line: 4,
+      character: 10,
+    })
     expect(validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts' })).toEqual({
       description: 'Inspect',
       prompt: 'Read src/index.ts',
@@ -123,6 +150,12 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('run_command', { command: '' })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 0 })).toThrow()
     expect(() => validateToolArgs('run_command', { command: 'pnpm test', timeoutMs: 1.5 })).toThrow()
+    expect(() => validateToolArgs('diagnostics', { path: '' })).toThrow()
+    expect(() => validateToolArgs('definition', { path: 'src/index.ts', line: -1, character: 10 })).toThrow()
+    expect(() => validateToolArgs('definition', { path: 'src/index.ts', line: 1 })).toThrow()
+    expect(() => validateToolArgs('references', { path: 'src/index.ts', line: 1.5, character: 10 })).toThrow()
+    expect(() => validateToolArgs('references', { path: 'src/index.ts', line: 1, character: -1 })).toThrow()
+    expect(() => validateToolArgs('hover', { path: 'src/index.ts', line: 1, character: 1.5 })).toThrow()
     expect(() => validateToolArgs('task', { description: '', prompt: 'Read' })).toThrow()
     expect(() => validateToolArgs('task', { description: 'Inspect', prompt: '' })).toThrow()
     expect(() => validateToolArgs('task', { description: 'Inspect', prompt: 'Read', tools: [''] })).toThrow()
