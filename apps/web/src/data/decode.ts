@@ -42,6 +42,8 @@ export function decodeSessionRow(raw: Raw): SessionRow {
     // bare `META[status]` lookup (that was the `reading 'color'` crash).
     lastStatus: (typeof status === 'string' ? status : 'idle') as SessionStatus,
     model: String(raw.model ?? 'sonnet'),
+    // `environment` is one word in both wire formats; null when unrouted/absent.
+    environment: (raw.environment as string | null | undefined) ?? null,
     createdAt: String(val(raw, 'createdAt', 'created_at') ?? ''),
     updatedAt: String(val(raw, 'updatedAt', 'updated_at') ?? ''),
   }

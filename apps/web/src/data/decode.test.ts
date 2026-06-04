@@ -42,6 +42,11 @@ describe('decodeSessionRow', () => {
     expect(decodeSessionRow({ id: 'x' }).lastStatus).toBe('idle')
     expect(decodeSessionRow({ id: 'x', last_status: 42 }).lastStatus).toBe('idle')
   })
+
+  it('maps the environment routing key, defaulting to null when absent', () => {
+    expect(decodeSessionRow({ ...synced, environment: 'laptop' }).environment).toBe('laptop')
+    expect(decodeSessionRow(synced).environment).toBeNull()
+  })
 })
 
 describe('decodeEventRow', () => {

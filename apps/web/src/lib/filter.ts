@@ -6,6 +6,8 @@ export interface SessionView {
   task?: string | null
   lastStatus: SessionStatus
   model: string
+  /** The environment this session is routed to run on; null/absent = unrouted. */
+  environment?: string | null
   updatedAt: number
 }
 

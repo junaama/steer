@@ -17,6 +17,8 @@ export interface SessionDetailProps {
   title: string
   model: string
   status: SessionStatus
+  /** The environment this session runs on; null/absent = unrouted (default daemon). */
+  environment?: string | null
   items: TraceItem[]
   plan: PlanItem[] | null
   onInterrupt: () => void
@@ -36,6 +38,14 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
             <span>{props.model}</span>
             <span>·</span>
             <span>{props.items.length} events</span>
+            {props.environment && (
+              <>
+                <span>·</span>
+                <span className="env-badge" title={`Runs on environment ${props.environment}`}>
+                  env: {props.environment}
+                </span>
+              </>
+            )}
           </div>
         </div>
         <StatusPill status={props.status} />

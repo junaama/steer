@@ -96,6 +96,16 @@ describe('SessionDetail', () => {
     expect(screen.getByText('thinking')).toBeInTheDocument()
   })
 
+  it('shows the environment badge when the session is routed', () => {
+    setup('running', { environment: 'laptop' })
+    expect(screen.getByText('env: laptop')).toBeInTheDocument()
+  })
+
+  it('omits the environment badge for an unrouted session', () => {
+    setup('running')
+    expect(screen.queryByText(/^env:/)).not.toBeInTheDocument()
+  })
+
   it('pins the todo panel when a plan is present', () => {
     setup('running', {
       plan: [

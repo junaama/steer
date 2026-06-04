@@ -135,6 +135,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     task: r.task,
     lastStatus: r.lastStatus,
     model: r.model,
+    environment: r.environment,
     updatedAt: new Date(r.updatedAt).getTime(),
   }))
 
@@ -149,6 +150,8 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
       task: value.task,
       lastStatus: 'starting',
       model: value.model,
+      // Web "New session" creates an unrouted session — the default daemon runs it.
+      environment: null,
       createdAt: now,
       updatedAt: now,
     })
@@ -236,6 +239,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       title={session.title}
       model={session.model}
       status={session.lastStatus}
+      environment={session.environment ?? null}
       items={items}
       plan={plan}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}

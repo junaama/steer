@@ -7,6 +7,8 @@ export interface SessionRow {
   task: string | null
   lastStatus: SessionStatus
   model: string
+  /** The environment this session is routed to run on; null = unrouted. */
+  environment: string | null
   createdAt: string
   updatedAt: string
 }
