@@ -19,20 +19,19 @@ export function resolveWorkspaceRoot(
 }
 
 /**
- * The directory a session runs in, from its `workdir` (the cwd the CLI was
- * launched from) and the daemon's `root` (the sandbox boundary):
- *
- *  - no workdir → the root itself (unchanged behavior);
- *  - workdir already inside the root → use it directly (a host daemon working on
- *    real paths — `STEER_WORKSPACE_ROOT` unset, so root is the daemon's cwd);
- *  - otherwise → map the (host-absolute) workdir under the root, e.g. a container
- *    that mounted the host filesystem at `/host` (root=`/host`, workdir=`/Users/x`
- *    → `/host/Users/x`). The result is always confined under the root.
+ * The directory a session runs in: its `workdir` (the cwd the CLI was launched
+ * from) when that resolves inside the daemon's `root`, else the `root` itself.
+ * A workdir the daemon doesn't have (e.g. a host laptop path sent to the
+ * container daemon, which has no such dir) is ignored — the session runs at the
+ * root, never on a path that daemon lacks. This keeps the container's default
+ * behavior unchanged (root in, root out) while a local daemon launched in a real
+ * project picks up that project's subdirectories. `root` stays the sandbox
+ * boundary, so a session can still reach siblings under it.
  */
 export function resolveSessionWorkspace(root: string, workdir: string | null | undefined): string {
   if (!workdir) return root
   const abs = resolve(workdir)
   const rel = relative(root, abs)
-  if (!rel.startsWith('..') && !isAbsolute(rel)) return abs
-  return resolve(root, `.${abs}`)
+  if (rel.startsWith('..') || isAbsolute(rel)) return root
+  return abs
 }

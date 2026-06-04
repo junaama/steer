@@ -48,18 +48,17 @@ The daemon picks up any session in `starting` status. The `steer` CLI is the no-
 
 `./steer` (from the repo root) needs no build; `pnpm steer …` works too. Token is stored in `~/.steer/credentials.json` (0600). Point at another server with `--server <url>` or `$STEER_SERVER_URL`; pick a model tier with `--model sonnet|opus|haiku`. For a bare `steer` on your PATH: `pnpm --filter @steer/cli build && pnpm --filter @steer/cli link --global`.
 
-### `steer` runs where you run it
+### `steer` runs where you run it — zero config
 
-`./steer "…"` binds the session to the **directory you ran it from** — the CLI sends its cwd, and the daemon runs the agent there. Run it in `~/dev/my-app` and `read_file`/`list_dir`/`grep`/`write_file`/`bash` all act on that project's files. (`--workdir <dir>` overrides it.)
-
-For that to work from the default `docker compose up` container, the stack mounts the **host filesystem** at `/host` and roots the daemon there (`WORKSPACE_DIR` defaults to `/`), so wherever the stack is pulled down it can reach any directory you `cd` into. A session bound to `/Users/you/app` is mapped to `/host/Users/you/app` inside the container; a task can reach anywhere under the root ("request broader scope"), so the agent's reach is the whole machine **by design** — and `bash` is an uncontained real shell.
+`./steer "…"` binds each session to the **directory you ran it from** (it sends its cwd; `--workdir <dir>` overrides), and the agent does its work there. This works straight out of `docker compose up` with **no host configuration**: the agent container mounts your **home directory at the same path** (`/Users/you` ↔ `/Users/you`), which Docker Desktop already shares (under `/Users`) and Linux mounts freely — so a session bound to `~/dev/my-app` lands on those real files with nothing to set up.
 
 ```bash
-docker compose --env-file .env.local up         # default: host fs mounted, cwd-routing works
-WORKSPACE_DIR=~/dev/my-app docker compose up     # narrow it for a sandboxed deploy
+docker compose --env-file .env.local up               # default: agent reaches anything under $HOME
+WORKSPACE_DIR=~/dev/my-app docker compose up           # narrow it to one project
+WORKSPACE_DIR=/ docker compose up                      # widen to the whole machine (needs Docker file-sharing)
 ```
 
-> Whole-machine reach is the intended default for a tool you run on your own machine. To sandbox it, set `WORKSPACE_DIR` to a single project (cwd-routing then only resolves paths under that dir). On macOS/Windows, Docker Desktop must be allowed to share the mounted path (Settings → Resources → File sharing) — or run a **local daemon** (see "Run it anywhere") which works on your real paths with no mount.
+A project outside the mounted root (or a web "New session" with no cwd) runs at the root. To work on files elsewhere, set `WORKSPACE_DIR` or run a **local daemon** in that directory (see "Run it anywhere"). The agent reaches anything under the root and `bash` is a real shell — it's your machine.
 
 The web UI at **http://localhost:5173** is your remote control: watch every session live, and **approve / swap / reject** side-effecting tools (`write_file`, `bash`) — those pause for approval, so an autonomous CLI run uses read-only tools until you steer it from the UI. A run stops as soon as a model repeats a tool call with no new result (a stuck loop), and is hard-capped at `STEER_MAX_STEPS` (default 80) as a backstop — so a stuck model can't loop forever.
 
