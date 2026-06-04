@@ -23,6 +23,9 @@ describe('decodeEvents', () => {
   })
 })
 
+// `op` builds an Electric message with a chosen operation (insert/update/delete).
+const op = (operation: string, value: Record<string, unknown>) => ({ value, headers: { operation } })
+
 describe('decodeSessions', () => {
   it('reads last_status (snake) with a camelCase fallback and skips controls', () => {
     expect(
@@ -34,6 +37,35 @@ describe('decodeSessions', () => {
     ).toEqual([
       { id: 'a', title: 'A', lastStatus: 'running' },
       { id: 'b', title: 'B', lastStatus: 'completed' },
+    ])
+  })
+
+  it('folds the op-log by id: full insert then partial updates merge (no duplicates)', () => {
+    // Mirrors Electric on the wire: insert carries the full row, each update only
+    // the changed column (+ id). A status-only update must not blank the title,
+    // and a rename must not blank the status.
+    expect(
+      decodeSessions([
+        op('insert', { id: 'a', title: 'orig', last_status: 'starting', model: 'sonnet', task: null }),
+        op('update', { id: 'a', last_status: 'running' }),
+        op('update', { id: 'a', title: 'renamed' }),
+      ]),
+    ).toEqual([{ id: 'a', title: 'renamed', lastStatus: 'running' }])
+  })
+
+  it('drops a session whose latest op is a delete', () => {
+    const states = decodeSessions([
+      op('insert', { id: 'a', title: 'A', last_status: 'completed' }),
+      op('insert', { id: 'b', title: 'B', last_status: 'completed' }),
+      op('delete', { id: 'a' }),
+    ])
+    expect(states.map((s) => s.id)).toEqual(['b'])
+  })
+
+  it('defaults missing fields for an update with no prior insert', () => {
+    // Defensive: an update seen before its insert (cannot happen in a full drain).
+    expect(decodeSessions([op('update', { id: 'x', last_status: 'running' })])).toEqual([
+      { id: 'x', title: '', lastStatus: 'running' },
     ])
   })
 })
