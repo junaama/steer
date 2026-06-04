@@ -35,6 +35,8 @@ export function createSessionsCollection(deps: Deps) {
           title: row.title,
           task: row.task ?? undefined,
           model: row.model,
+          environment: row.environment ?? undefined,
+          workdir: row.workdir ?? undefined,
         })
         return { txid: Number(txid) }
       },

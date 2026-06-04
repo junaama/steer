@@ -44,6 +44,7 @@ export function decodeSessionRow(raw: Raw): SessionRow {
     model: String(raw.model ?? 'sonnet'),
     // `environment` is one word in both wire formats; null when unrouted/absent.
     environment: (raw.environment as string | null | undefined) ?? null,
+    workdir: (raw.workdir as string | null | undefined) ?? null,
     createdAt: String(val(raw, 'createdAt', 'created_at') ?? ''),
     updatedAt: String(val(raw, 'updatedAt', 'updated_at') ?? ''),
   }

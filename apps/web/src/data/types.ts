@@ -9,6 +9,8 @@ export interface SessionRow {
   model: string
   /** The environment this session is routed to run on; null = unrouted. */
   environment: string | null
+  /** The working directory hint for the session; null when not specified. */
+  workdir: string | null
   createdAt: string
   updatedAt: string
 }

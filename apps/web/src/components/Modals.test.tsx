@@ -7,18 +7,18 @@ describe('NewSessionModal', () => {
   it('disables start until a task is entered, then creates with the chosen model', () => {
     const onCreate = vi.fn()
     const onClose = vi.fn()
-    render(<NewSessionModal onClose={onClose} onCreate={onCreate} />)
+    render(<NewSessionModal onClose={onClose} onCreate={onCreate} environments={[]} />)
     const start = screen.getByText('Start session')
     expect(start).toBeDisabled()
     fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'do the thing' } })
     fireEvent.click(screen.getByText('opus'))
     fireEvent.click(start)
-    expect(onCreate).toHaveBeenCalledWith({ task: 'do the thing', model: 'opus' })
+    expect(onCreate).toHaveBeenCalledWith({ task: 'do the thing', model: 'opus', environment: undefined, workdir: undefined })
   })
 
   it('closes on cancel and on scrim mousedown but not on modal mousedown', () => {
     const onClose = vi.fn()
-    const { container } = render(<NewSessionModal onClose={onClose} onCreate={vi.fn()} />)
+    const { container } = render(<NewSessionModal onClose={onClose} onCreate={vi.fn()} environments={[]} />)
     fireEvent.mouseDown(container.querySelector('.modal')!)
     expect(onClose).not.toHaveBeenCalled()
     fireEvent.mouseDown(container.querySelector('.scrim')!)

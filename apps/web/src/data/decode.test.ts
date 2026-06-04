@@ -47,6 +47,11 @@ describe('decodeSessionRow', () => {
     expect(decodeSessionRow({ ...synced, environment: 'laptop' }).environment).toBe('laptop')
     expect(decodeSessionRow(synced).environment).toBeNull()
   })
+
+  it('maps the workdir field, defaulting to null when absent', () => {
+    expect(decodeSessionRow({ ...synced, workdir: '/home/user/project' }).workdir).toBe('/home/user/project')
+    expect(decodeSessionRow(synced).workdir).toBeNull()
+  })
 })
 
 describe('decodeEventRow', () => {

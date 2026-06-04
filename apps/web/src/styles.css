@@ -471,6 +471,38 @@ textarea {
   border-color: var(--accent);
   background: var(--selected);
 }
+.env-select {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.env-select:focus {
+  border-color: var(--accent);
+}
+.workdir-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-strong);
+  font-size: 12px;
+  outline: none;
+}
+.workdir-input:focus {
+  border-color: var(--accent);
+}
 
 /* placeholder / login gate */
 .placeholder {

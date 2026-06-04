@@ -34,6 +34,25 @@ describe('createWriteClient', () => {
     expect(bodies[3]).toEqual({ collection: 'controls', op: 'insert', payload: { sessionId: 's1', type: 'interrupt', payload: {} } })
   })
 
+  it('includes environment and workdir in createSession when provided', async () => {
+    const fetchImpl = okFetch('200')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    await client.createSession({ id: 's2', title: 'Routed', environment: 'laptop', workdir: '/home/user/project' })
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string)
+    expect(body.payload).toEqual({ id: 's2', title: 'Routed', environment: 'laptop', workdir: '/home/user/project' })
+  })
+
+  it('omits environment and workdir from createSession when undefined', async () => {
+    const fetchImpl = okFetch('201')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    await client.createSession({ id: 's3', title: 'Unrouted' })
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string)
+    expect(body.payload).toEqual({ id: 's3', title: 'Unrouted' })
+    // JSON.stringify drops undefined, so environment/workdir are absent
+    expect('environment' in body.payload).toBe(false)
+    expect('workdir' in body.payload).toBe(false)
+  })
+
   it('throws on a non-2xx response', async () => {
     const fetchImpl = vi.fn(async () => new Response('nope', { status: 403 }))
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })

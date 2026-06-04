@@ -28,7 +28,7 @@ export function createWriteClient(opts: { serverUrl: string; fetchImpl: FetchLik
   }
 
   return {
-    createSession: (s: { id: string; title: string; task?: string; model?: string }) =>
+    createSession: (s: { id: string; title: string; task?: string; model?: string; environment?: string; workdir?: string }) =>
       write('sessions', 'insert', s),
     renameSession: (id: string, title: string) => write('sessions', 'update', { id, title }),
     setStatus: (id: string, lastStatus: SessionStatus) => write('sessions', 'update', { id, lastStatus }),

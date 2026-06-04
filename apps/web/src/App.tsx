@@ -142,7 +142,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     updatedAt: new Date(r.updatedAt).getTime(),
   }))
 
-  const createSession = (value: { task: string; model: string }): void => {
+  const createSession = (value: { task: string; model: string; environment?: string; workdir?: string }): void => {
     const id = randomId('sess')
     const title = value.task.length > 42 ? `${value.task.slice(0, 40).trim()}…` : value.task
     const now = new Date().toISOString()
@@ -153,11 +153,21 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
       task: value.task,
       lastStatus: 'starting',
       model: value.model,
-      // Web "New session" creates an unrouted session — the default daemon runs it.
-      environment: null,
+      environment: value.environment ?? null,
+      workdir: value.workdir ?? null,
       createdAt: now,
       updatedAt: now,
     })
+    // Persist the last-used environment as a sticky default (only on successful insert).
+    // Find the matching environment row to persist the *id* (not the env value).
+    if (value.environment) {
+      const matchRow = environmentRows.find((e) => e.env === value.environment)
+      if (matchRow) {
+        try { localStorage.setItem('steer_default_env', matchRow.id) } catch { /* private mode */ }
+      }
+    } else {
+      try { localStorage.removeItem('steer_default_env') } catch { /* private mode */ }
+    }
     setNewOpen(false)
     setActiveId(id)
   }
@@ -202,7 +212,14 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
           )
         }
       />
-      {newOpen && <NewSessionModal onClose={() => setNewOpen(false)} onCreate={createSession} />}
+      {newOpen && (
+        <NewSessionModal
+          onClose={() => setNewOpen(false)}
+          onCreate={createSession}
+          environments={environmentRows}
+          defaultEnvironment={(() => { try { return localStorage.getItem('steer_default_env') } catch { return null } })()}
+        />
+      )}
       {confirmTarget && (
         <ConfirmModal
           title="Delete session?"
