@@ -1,5 +1,5 @@
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises'
-import { resolve, relative, isAbsolute, join } from 'node:path'
+import { relative, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { READ_ONLY_TOOLS, validateToolArgs } from '@steer/schema'
 import { createLspClient } from '../lsp.js'
@@ -8,9 +8,13 @@ import type { AgentStore } from '../store.js'
 import { edit_file, multi_edit } from './edit.js'
 import { makeDefinitionTool, makeDiagnosticsTool, makeHoverTool, makeReferencesTool } from './lsp.js'
 import { run_command } from './run.js'
+import { safeJoin } from './paths.js'
 
 export interface ToolContext {
+  /** Where relative paths resolve and shells run — the session's working dir. */
   workspaceRoot: string
+  /** Sandbox boundary file access is confined to. Defaults to workspaceRoot. */
+  root?: string
   signal?: AbortSignal
   subagent?: {
     store: AgentStore
@@ -24,12 +28,9 @@ export interface ToolContext {
 
 export type ToolFn = (args: Record<string, unknown>, ctx: ToolContext) => Promise<string>
 
-/** Resolve a path inside the workspace, refusing traversal outside it. */
-function safeJoin(root: string, path: string): string {
-  const full = resolve(root, path)
-  const rel = relative(root, full)
-  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`path escapes the workspace: ${path}`)
-  return full
+/** The sandbox root for a context — the broad daemon root, or the session dir. */
+function sandboxRoot(ctx: ToolContext): string {
+  return ctx.root ?? ctx.workspaceRoot
 }
 
 async function walk(dir: string): Promise<string[]> {
@@ -45,19 +46,19 @@ async function walk(dir: string): Promise<string[]> {
 
 export const read_file: ToolFn = async (args, ctx) => {
   const { path } = validateToolArgs('read_file', args) as { path: string }
-  return readFile(safeJoin(ctx.workspaceRoot, path), 'utf8')
+  return readFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), 'utf8')
 }
 
 export const list_dir: ToolFn = async (args, ctx) => {
   const { path } = validateToolArgs('list_dir', args) as { path: string }
-  const entries = await readdir(safeJoin(ctx.workspaceRoot, path), { withFileTypes: true })
+  const entries = await readdir(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), { withFileTypes: true })
   return entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort().join('\n')
 }
 
 export const grep: ToolFn = async (args, ctx) => {
   const { pattern, path } = validateToolArgs('grep', args) as { pattern: string; path: string }
   const re = new RegExp(pattern)
-  const target = safeJoin(ctx.workspaceRoot, path)
+  const target = safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path)
   const files = (await stat(target)).isDirectory() ? await walk(target) : [target]
   const matches: string[] = []
   for (const file of files) {
@@ -111,6 +112,7 @@ export const task: ToolFn = async (args, ctx) => {
       driver,
       tools: subagent.tools,
       workspaceRoot: ctx.workspaceRoot,
+      root: ctx.root,
       signal: ctx.signal,
       maxSteps: subagent.maxSteps,
     },
@@ -120,7 +122,7 @@ export const task: ToolFn = async (args, ctx) => {
 
 export const write_file: ToolFn = async (args, ctx) => {
   const { path, content } = validateToolArgs('write_file', args) as { path: string; content: string }
-  await writeFile(safeJoin(ctx.workspaceRoot, path), content, 'utf8')
+  await writeFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), content, 'utf8')
   return `Wrote ${path} · ${content.split('\n').length} lines`
 }
 

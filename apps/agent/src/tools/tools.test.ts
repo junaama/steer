@@ -41,6 +41,40 @@ describe('read_file', () => {
   })
 })
 
+describe('sandbox split: session workdir within a broader daemon root', () => {
+  let base: string
+  let projectA: string
+  beforeAll(async () => {
+    base = await mkdtemp(join(tmpdir(), 'steer-split-'))
+    projectA = join(base, 'projectA')
+    await mkdir(projectA)
+    await mkdir(join(base, 'projectB'))
+    await writeFile(join(projectA, 'a.txt'), 'in A')
+    await writeFile(join(base, 'projectB', 'b.txt'), 'in B')
+  })
+  // root = the broad daemon root; workspaceRoot = the session's cwd within it.
+  const split = () => ({ workspaceRoot: projectA, root: base })
+
+  it('resolves relative paths against the session workdir, not the root', async () => {
+    expect(await read_file({ path: 'a.txt' }, split())).toBe('in A')
+    expect((await list_dir({ path: '.' }, split())).split('\n')).toEqual(['a.txt'])
+  })
+
+  it('reaches a sibling directory under the root (request broader scope)', async () => {
+    expect(await read_file({ path: '../projectB/b.txt' }, split())).toBe('in B')
+  })
+
+  it('still refuses a path above the root', async () => {
+    await expect(read_file({ path: '/etc/passwd' }, split())).rejects.toThrow(/escapes/)
+  })
+
+  it('confines writes to the root: a sibling is allowed, above the root is not', async () => {
+    await write_file({ path: '../projectB/new.txt', content: 'hi' }, split())
+    expect(await readFile(join(base, 'projectB', 'new.txt'), 'utf8')).toBe('hi')
+    await expect(write_file({ path: '/etc/x', content: 'no' }, split())).rejects.toThrow(/escapes/)
+  })
+})
+
 describe('list_dir', () => {
   it('lists entries with a trailing slash on directories', async () => {
     const out = await list_dir({ path: '.' }, ctx())

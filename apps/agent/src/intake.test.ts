@@ -15,10 +15,10 @@ const upToDate = (): Message => ({ headers: { control: 'up-to-date' } }) as unkn
 describe('runnableFromMessages', () => {
   it('includes a fresh starting session with its model and task', () => {
     const out = runnableFromMessages(
-      [change('insert', { id: 's1', last_status: 'starting', model: 'opus', task: 'do the thing' })],
+      [change('insert', { id: 's1', last_status: 'starting', model: 'opus', task: 'do the thing', workdir: '/dev/projectA' })],
       null,
     )
-    expect(out).toEqual([{ id: 's1', model: 'opus', task: 'do the thing' }])
+    expect(out).toEqual([{ id: 's1', model: 'opus', task: 'do the thing', workdir: '/dev/projectA' }])
   })
 
   it('includes a running session (crash-only resume from the reconnect snapshot)', () => {
@@ -26,7 +26,7 @@ describe('runnableFromMessages', () => {
       [change('update', { id: 's2', last_status: 'running', model: 'sonnet', task: null })],
       null,
     )
-    expect(out).toEqual([{ id: 's2', model: 'sonnet', task: null }])
+    expect(out).toEqual([{ id: 's2', model: 'sonnet', task: null, workdir: null }])
   })
 
   it('includes an awaiting-approval session (resume a run that crashed at the gate)', () => {
@@ -34,12 +34,12 @@ describe('runnableFromMessages', () => {
       [change('update', { id: 's-gate', last_status: 'awaiting-approval', model: 'sonnet', task: null })],
       null,
     )
-    expect(out).toEqual([{ id: 's-gate', model: 'sonnet', task: null }])
+    expect(out).toEqual([{ id: 's-gate', model: 'sonnet', task: null, workdir: null }])
   })
 
   it('defaults model to sonnet and task to null when absent or non-string', () => {
     expect(runnableFromMessages([change('insert', { id: 's3', last_status: 'starting' })], null)).toEqual([
-      { id: 's3', model: 'sonnet', task: null },
+      { id: 's3', model: 'sonnet', task: null, workdir: null },
     ])
   })
 
@@ -127,7 +127,7 @@ describe('subscribeRunnable', () => {
       change('insert', { id: 's1', last_status: 'starting', model: 'opus', task: 't' }),
       change('insert', { id: 'x', last_status: 'completed' }),
     ])
-    expect(seen).toEqual([{ id: 's1', model: 'opus', task: 't' }])
+    expect(seen).toEqual([{ id: 's1', model: 'opus', task: 't', workdir: null }])
   })
 
   it('passes its environment to the projection so only matching rows are routed', () => {

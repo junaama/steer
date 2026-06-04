@@ -1,7 +1,7 @@
-import { isAbsolute, relative, resolve } from 'node:path'
 import { validateToolArgs } from '@steer/schema'
 import type { LspClient, LspDiagnostic, LspLocation } from '../lsp.js'
 import type { ToolFn } from './index.js'
+import { safeJoin } from './paths.js'
 
 const LSP_DISABLED_MESSAGE = 'LSP is not enabled. Set STEER_LSP=1 to use this read-only tool.'
 
@@ -9,13 +9,6 @@ interface PositionArgs {
   path: string
   line: number
   character: number
-}
-
-function safeJoin(root: string, path: string): string {
-  const full = resolve(root, path)
-  const rel = relative(root, full)
-  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`path escapes the workspace: ${path}`)
-  return full
 }
 
 export function formatDiagnostics(diagnostics: readonly LspDiagnostic[]): string {
@@ -43,7 +36,7 @@ export function makeDiagnosticsTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path } = validateToolArgs('diagnostics', args) as { path: string }
-    return formatDiagnostics(await client.diagnostics(safeJoin(ctx.workspaceRoot, path)))
+    return formatDiagnostics(await client.diagnostics(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)))
   }
 }
 
@@ -52,7 +45,7 @@ export function makeDefinitionTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('definition', args) as PositionArgs
-    return formatLocations(await client.definition(safeJoin(ctx.workspaceRoot, path), line, character))
+    return formatLocations(await client.definition(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character))
   }
 }
 
@@ -61,7 +54,7 @@ export function makeReferencesTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('references', args) as PositionArgs
-    return formatLocations(await client.references(safeJoin(ctx.workspaceRoot, path), line, character))
+    return formatLocations(await client.references(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character))
   }
 }
 
@@ -70,7 +63,7 @@ export function makeHoverTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('hover', args) as PositionArgs
-    const text = (await client.hover?.(safeJoin(ctx.workspaceRoot, path), line, character)) ?? null
+    const text = (await client.hover?.(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character)) ?? null
     return text ?? 'No hover information.'
   }
 }

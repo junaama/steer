@@ -13,6 +13,8 @@ export interface SessionIntent {
   id: string
   model: string
   task: string | null
+  /** Absolute directory the session should run in (the CLI's cwd); null = daemon root. */
+  workdir: string | null
 }
 
 // 'starting' = a fresh task; 'running' = a crashed run to resume (it replays in
@@ -55,6 +57,7 @@ export function runnableFromMessages(messages: Message[], myEnv: string | null):
       id,
       model: typeof row.model === 'string' ? row.model : 'sonnet',
       task: typeof row.task === 'string' ? row.task : null,
+      workdir: typeof row.workdir === 'string' ? row.workdir : null,
     })
   }
   return out

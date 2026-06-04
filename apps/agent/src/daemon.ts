@@ -5,7 +5,7 @@ import { tools } from './tools/index.js'
 import { buildMcpToolDefinitions, buildMcpTools, parseMcpConfig } from './tools/mcp.js'
 import { connectMcpServers } from './mcp.js'
 import { createModelDriver, createSubagentDriver } from './model.js'
-import { resolveWorkspaceRoot } from './workspace.js'
+import { resolveWorkspaceRoot, resolveSessionWorkspace } from './workspace.js'
 import type { SessionIntent } from './intake.js'
 import type { SubagentDriverInput } from './subagent.js'
 
@@ -49,7 +49,10 @@ export function createRunner(
   // real files where the daemon was launched (PRD: "runs the sessions on the host
   // it's running on").
   const defaultRunOne = async (s: AgentStore, intent: SessionIntent): Promise<void> => {
-    const workspaceRoot = resolveWorkspaceRoot(process.env)
+    // The daemon's root is the sandbox boundary; the session runs in its workdir
+    // (the CLI's cwd) within that root — or at the root when no workdir was given.
+    const root = resolveWorkspaceRoot(process.env)
+    const workspaceRoot = resolveSessionWorkspace(root, intent.workdir)
     const maxSteps = Number(process.env.STEER_MAX_STEPS) || 80
     const connections = await mcpConnections
     const dynamicTools = buildMcpTools(connections)
@@ -58,7 +61,7 @@ export function createRunner(
     const driver = createModelDriver({ model: intent.model, task: intent.task, dynamicTools: dynamicToolDefinitions })
     const subagentDriver = (input: SubagentDriverInput) =>
       createSubagentDriver({ ...input, model: intent.model, dynamicTools: dynamicToolDefinitions })
-    await runSession(s, driver, intent.id, { workspaceRoot, tools: sessionTools, maxSteps, subagentDriver })
+    await runSession(s, driver, intent.id, { workspaceRoot, root, tools: sessionTools, maxSteps, subagentDriver })
   }
   const runOne = deps?.runOne ?? defaultRunOne
 

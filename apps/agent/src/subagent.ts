@@ -18,6 +18,8 @@ export interface RunSubagentDeps {
   driver: ModelDriver
   tools: Record<string, ToolFn>
   workspaceRoot: string
+  /** Sandbox boundary (broad daemon root); defaults to workspaceRoot. */
+  root?: string
   signal?: AbortSignal
   maxSteps?: number
 }
@@ -108,7 +110,7 @@ export async function runSubagent(deps: RunSubagentDeps, input: RunSubagentInput
 
     const impl = allowed.has(step.name) ? deps.tools[step.name] : undefined
     const result = impl
-      ? await impl(step.args, { workspaceRoot: deps.workspaceRoot, signal: deps.signal }).catch(
+      ? await impl(step.args, { workspaceRoot: deps.workspaceRoot, root: deps.root, signal: deps.signal }).catch(
           (err: unknown) => `error: ${errorMessage(err)}`,
         )
       : `error: tool ${step.name} is not available to this subagent`

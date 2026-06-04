@@ -12,6 +12,8 @@ export interface ToolStep {
 export interface ResolveDeps {
   tools: Record<string, ToolFn>
   workspaceRoot: string
+  /** Sandbox boundary (broad daemon root); defaults to workspaceRoot. */
+  root?: string
   pollMs: number
   /** Per-session tool-name grants from approve controls carrying alwaysAllow. */
   allowlist?: Set<string>
@@ -76,7 +78,7 @@ export async function resolveTool(
           }
         : undefined
     try {
-      return await impl(args, { workspaceRoot: deps.workspaceRoot, signal: deps.signal, subagent })
+      return await impl(args, { workspaceRoot: deps.workspaceRoot, root: deps.root, signal: deps.signal, subagent })
     } catch (err) {
       return `error: ${errorMessage(err)}`
     }
@@ -145,7 +147,7 @@ export async function resolveTool(
   const ac = new AbortController()
   const impl = deps.tools[step.name]
   const execPromise: Promise<string> = impl
-    ? impl(step.args, { workspaceRoot: deps.workspaceRoot, signal: ac.signal }).catch((err: unknown) =>
+    ? impl(step.args, { workspaceRoot: deps.workspaceRoot, root: deps.root, signal: ac.signal }).catch((err: unknown) =>
         ac.signal.aborted ? '__aborted__' : `error: ${errorMessage(err)}`,
       )
     : Promise.resolve(`error: unknown tool ${step.name}`)

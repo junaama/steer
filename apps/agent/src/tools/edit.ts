@@ -1,18 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
 import { validateToolArgs } from '@steer/schema'
 import type { ToolFn } from './index.js'
+import { safeJoin } from './paths.js'
 
 export interface Edit {
   old_string: string
   new_string: string
-}
-
-function safeJoin(root: string, path: string): string {
-  const full = resolve(root, path)
-  const rel = relative(root, full)
-  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`path escapes the workspace: ${path}`)
-  return full
 }
 
 function countMatches(content: string, needle: string): number {
@@ -57,7 +50,7 @@ export const edit_file: ToolFn = async (args, ctx) => {
     old_string: string
     new_string: string
   }
-  const fullPath = safeJoin(ctx.workspaceRoot, path)
+  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
   const before = await readFile(fullPath, 'utf8')
   const after = applyEdits(before, [{ old_string, new_string }])
   await writeFile(fullPath, after, 'utf8')
@@ -66,7 +59,7 @@ export const edit_file: ToolFn = async (args, ctx) => {
 
 export const multi_edit: ToolFn = async (args, ctx) => {
   const { path, edits } = validateToolArgs('multi_edit', args) as { path: string; edits: Edit[] }
-  const fullPath = safeJoin(ctx.workspaceRoot, path)
+  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
   const before = await readFile(fullPath, 'utf8')
   const after = applyEdits(before, edits)
   await writeFile(fullPath, after, 'utf8')

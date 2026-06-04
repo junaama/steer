@@ -141,7 +141,10 @@ function parentEvents(events: StoredEvent[]): StoredEvent[] {
 }
 
 export interface RunOptions {
+  /** The session's working directory — where relative paths resolve, shells run. */
   workspaceRoot: string
+  /** Sandbox boundary file access is confined to (broad daemon root). Defaults to workspaceRoot. */
+  root?: string
   tools: Record<string, ToolFn>
   signal?: AbortSignal
   /** Control-poll interval for the approval gate + live cancel (ms). */
@@ -238,6 +241,7 @@ export async function runSession(
     const outcome = await resolveTool(store, sessionId, step, {
       tools: options.tools,
       workspaceRoot: options.workspaceRoot,
+      root: options.root,
       pollMs: options.pollMs ?? 200,
       allowlist,
       signal: options.signal,
