@@ -27,14 +27,31 @@ export function createWriteClient(opts: { serverUrl: string; fetchImpl: FetchLik
     return body.txid
   }
 
+  /**
+   * Send a follow-up message to an existing session. Posts to the dedicated
+   * `/sessions/:id/message` endpoint which atomically appends a `user_message`
+   * event and flips `last_status` back to `starting`, returning the txid.
+   */
+  async function sendMessage(sessionId: string, text: string): Promise<string> {
+    const res = await opts.fetchImpl(`${opts.serverUrl}/sessions/${sessionId}/message`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) throw new Error(`sendMessage failed: ${res.status}`)
+    const body = (await res.json()) as WriteResponse
+    return body.txid
+  }
+
   return {
-    createSession: (s: { id: string; title: string; task?: string; model?: string }) =>
+    createSession: (s: { id: string; title: string; task?: string; model?: string; environment?: string; workdir?: string }) =>
       write('sessions', 'insert', s),
     renameSession: (id: string, title: string) => write('sessions', 'update', { id, title }),
     setStatus: (id: string, lastStatus: SessionStatus) => write('sessions', 'update', { id, lastStatus }),
     deleteSession: (id: string) => write('sessions', 'delete', { id }),
     sendControl: (sessionId: string, type: ControlType, payload: Record<string, unknown>) =>
       write('controls', 'insert', { sessionId, type, payload }),
+    sendMessage,
   }
 }
 

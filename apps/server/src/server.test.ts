@@ -266,4 +266,12 @@ describe('Electric proxy', () => {
     expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('controls')
     expect(shapeParam(electricCalls.at(-1) ?? '', 'offset')).toBe('42')
   })
+
+  it('proxies the environments shape with WHERE 1 = 1 and Vary: Authorization', async () => {
+    const r = await app.inject({ method: 'GET', url: '/sync/environments', headers: auth('tokenA') })
+    expect(r.statusCode).toBe(200)
+    expect(r.headers['vary']).toBe('Authorization')
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('environments')
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'where')).toBe('1 = 1')
+  })
 })

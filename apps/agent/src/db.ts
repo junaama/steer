@@ -1,8 +1,8 @@
 import pg from 'pg'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { sessions, events, controls } from '@steer/schema'
+import { sessions, events, controls, environments } from '@steer/schema'
 
-const schema = { sessions, events, controls }
+const schema = { sessions, events, controls, environments }
 export type Db = NodePgDatabase<typeof schema>
 
 export function createPool(connectionString: string | undefined = process.env.DATABASE_URL): pg.Pool {

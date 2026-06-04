@@ -9,12 +9,12 @@ import { ConfirmModal } from './components/ConfirmModal.js'
 import { useSteerAuth, type SteerAuth } from './auth/AuthProvider.js'
 import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-fetch.js'
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
-import { createSessionsCollection, createEventsCollection } from './data/electric.js'
-import { decodeSessionRow, decodeEventRow } from './data/decode.js'
+import { createSessionsCollection, createEventsCollection, createEnvironmentsCollection } from './data/electric.js'
+import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './data/decode.js'
 import { buildTrace, latestPlan, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
-import type { SessionRow, EventRow } from './data/types.js'
+import type { SessionRow, EventRow, EnvironmentRow } from './data/types.js'
 
 interface Deps {
   serverUrl: string
@@ -116,10 +116,12 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     [authedFetch, write],
   )
   const sessions = useMemo(() => createSessionsCollection(deps), [deps])
+  const envCollection = useMemo(() => createEnvironmentsCollection(deps), [deps])
 
   // The Electric/TanStack live read + optimistic mutators are the external-SDK
   // boundary; cast locally so the rest of the app stays strictly typed.
   const live = useLiveQuery((q) => q.from({ s: sessions })) as unknown as { data?: SessionRow[] }
+  const envLive = useLiveQuery((q) => q.from({ e: envCollection })) as unknown as { data?: EnvironmentRow[] }
   const mutate = sessions as unknown as {
     insert: (row: SessionRow) => void
     update: (key: string, updater: (draft: SessionRow) => void) => void
@@ -129,6 +131,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
   // Electric delivers snake_case columns; decode to the app's strict camelCase
   // shape before projecting (raw synced rows otherwise have undefined lastStatus).
   const rows = ((live.data ?? []) as unknown as Record<string, unknown>[]).map(decodeSessionRow)
+  const environmentRows = ((envLive.data ?? []) as unknown as Record<string, unknown>[]).map(decodeEnvironmentRow)
   const views: SessionView[] = rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -139,7 +142,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     updatedAt: new Date(r.updatedAt).getTime(),
   }))
 
-  const createSession = (value: { task: string; model: string }): void => {
+  const createSession = (value: { task: string; model: string; environment?: string; workdir?: string }): void => {
     const id = randomId('sess')
     const title = value.task.length > 42 ? `${value.task.slice(0, 40).trim()}…` : value.task
     const now = new Date().toISOString()
@@ -150,11 +153,21 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
       task: value.task,
       lastStatus: 'starting',
       model: value.model,
-      // Web "New session" creates an unrouted session — the default daemon runs it.
-      environment: null,
+      environment: value.environment ?? null,
+      workdir: value.workdir ?? null,
       createdAt: now,
       updatedAt: now,
     })
+    // Persist the last-used environment as a sticky default (only on successful insert).
+    // Find the matching environment row to persist the *id* (not the env value).
+    if (value.environment) {
+      const matchRow = environmentRows.find((e) => e.env === value.environment)
+      if (matchRow) {
+        try { localStorage.setItem('steer_default_env', matchRow.id) } catch { /* private mode */ }
+      }
+    } else {
+      try { localStorage.removeItem('steer_default_env') } catch { /* private mode */ }
+    }
     setNewOpen(false)
     setActiveId(id)
   }
@@ -199,7 +212,14 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
           )
         }
       />
-      {newOpen && <NewSessionModal onClose={() => setNewOpen(false)} onCreate={createSession} />}
+      {newOpen && (
+        <NewSessionModal
+          onClose={() => setNewOpen(false)}
+          onCreate={createSession}
+          environments={environmentRows}
+          defaultEnvironment={(() => { try { return localStorage.getItem('steer_default_env') } catch { return null } })()}
+        />
+      )}
       {confirmTarget && (
         <ConfirmModal
           title="Delete session?"
@@ -234,6 +254,10 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
     else void write.sendControl(session.id, 'override', { toolCallId: id, newArgs: action.newArgs })
   }
 
+  const handleSendMessage = async (text: string): Promise<void> => {
+    await write.sendMessage(session.id, text)
+  }
+
   return (
     <SessionDetail
       title={session.title}
@@ -244,6 +268,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       plan={plan}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
       onContinue={() => void write.setStatus(session.id, 'starting')}
+      onSendMessage={handleSendMessage}
       renderToolControls={(tool) => <InterceptControls tool={tool} onAction={(a) => handleAction(tool, a)} />}
     />
   )

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { SessionStatus } from '@steer/schema'
 import type { PlanItem, TraceItem, ToolItem } from '../lib/trace.js'
 import { StatusPill } from './StatusPill.js'
@@ -23,12 +23,29 @@ export interface SessionDetailProps {
   plan: PlanItem[] | null
   onInterrupt: () => void
   onContinue: () => void
+  /** Send a follow-up message to the session (re-queues the agent). */
+  onSendMessage?: (text: string) => Promise<void>
   /** U11 injects per-tool interception controls; omitted here. */
   renderToolControls?: (tool: ToolItem) => ReactNode
 }
 
 export function SessionDetail(props: SessionDetailProps): JSX.Element {
   const live = LIVE.includes(props.status)
+  const [composerText, setComposerText] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const handleSend = async (): Promise<void> => {
+    const trimmed = composerText.trim()
+    if (!trimmed || !props.onSendMessage) return
+    setSending(true)
+    try {
+      await props.onSendMessage(trimmed)
+      setComposerText('')
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <section className="main">
       <header className="detail-head">
@@ -86,6 +103,22 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
               </div>
             )}
           </div>
+        </div>
+        <div className="composer">
+          <textarea
+            className="composer-input"
+            placeholder={live ? 'Interrupt the session first' : 'Send a follow-up instruction…'}
+            value={composerText}
+            onChange={(e) => setComposerText(e.target.value)}
+            disabled={live || sending}
+          />
+          <button
+            className="btn primary sm"
+            disabled={live || sending || !composerText.trim()}
+            onClick={() => void handleSend()}
+          >
+            {sending ? 'Sending…' : 'Send'}
+          </button>
         </div>
       </div>
     </section>

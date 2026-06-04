@@ -3,7 +3,7 @@ import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
-import { sessions } from '@steer/schema'
+import { sessions, environments } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore } from './store.js'
 
@@ -39,6 +39,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query('TRUNCATE sessions CASCADE;')
+  await pool.query('TRUNCATE environments CASCADE;')
 })
 
 describe('claimSession (single-owner atomic claim)', () => {
@@ -64,5 +65,77 @@ describe('claimSession (single-owner atomic claim)', () => {
 
   it('returns false when no session matches the id', async () => {
     expect(await store.claimSession('does-not-exist', 'laptop')).toBe(false)
+  })
+})
+
+describe('upsertEnvironment', () => {
+  it('inserts a new environment row', async () => {
+    await store.upsertEnvironment('laptop', 'laptop', 'host1.local')
+    const rows = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.id, 'laptop'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.env).toBe('laptop')
+    expect(rows[0]!.host).toBe('host1.local')
+    expect(rows[0]!.lastSeenAt).toBeInstanceOf(Date)
+    expect(rows[0]!.createdAt).toBeInstanceOf(Date)
+  })
+
+  it('inserts a default daemon with env=null', async () => {
+    await store.upsertEnvironment('myhost', null, 'myhost')
+    const rows = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.id, 'myhost'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.env).toBeNull()
+    expect(rows[0]!.host).toBe('myhost')
+  })
+
+  it('is idempotent: re-upsert updates host and last_seen_at', async () => {
+    await store.upsertEnvironment('laptop', 'laptop', 'host1.local')
+    const before = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.id, 'laptop'))
+    const firstSeen = before[0]!.lastSeenAt
+
+    // Small delay so timestamps differ
+    await new Promise((r) => setTimeout(r, 20))
+    await store.upsertEnvironment('laptop', 'laptop', 'host2.local')
+
+    const after = await db
+      .select()
+      .from(environments)
+      .where(eq(environments.id, 'laptop'))
+    expect(after).toHaveLength(1)
+    expect(after[0]!.host).toBe('host2.local')
+    expect(after[0]!.lastSeenAt.getTime()).toBeGreaterThanOrEqual(firstSeen.getTime())
+  })
+})
+
+describe('heartbeat', () => {
+  it('advances last_seen_at for a registered environment', async () => {
+    await store.upsertEnvironment('laptop', 'laptop', 'host1.local')
+    const before = await db
+      .select({ lastSeenAt: environments.lastSeenAt })
+      .from(environments)
+      .where(eq(environments.id, 'laptop'))
+    const firstSeen = before[0]!.lastSeenAt
+
+    await new Promise((r) => setTimeout(r, 20))
+    await store.heartbeat('laptop')
+
+    const after = await db
+      .select({ lastSeenAt: environments.lastSeenAt })
+      .from(environments)
+      .where(eq(environments.id, 'laptop'))
+    expect(after[0]!.lastSeenAt.getTime()).toBeGreaterThanOrEqual(firstSeen.getTime())
+  })
+
+  it('is a no-op for a non-existent environment (no error)', async () => {
+    // heartbeat on a missing id should not throw
+    await expect(store.heartbeat('does-not-exist')).resolves.toBeUndefined()
   })
 })

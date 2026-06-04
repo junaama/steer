@@ -9,6 +9,8 @@ export interface SessionRow {
   model: string
   /** The environment this session is routed to run on; null = unrouted. */
   environment: string | null
+  /** The working directory hint for the session; null when not specified. */
+  workdir: string | null
   createdAt: string
   updatedAt: string
 }
@@ -18,4 +20,13 @@ export interface EventRow {
   seq: number
   type: EventType
   payload: Record<string, unknown>
+}
+
+/** A registered daemon environment synced from the `environments` table. */
+export interface EnvironmentRow {
+  id: string
+  env: string | null
+  host: string
+  lastSeenAt: string
+  createdAt: string
 }

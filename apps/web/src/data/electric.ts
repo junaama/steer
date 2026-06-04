@@ -35,6 +35,8 @@ export function createSessionsCollection(deps: Deps) {
           title: row.title,
           task: row.task ?? undefined,
           model: row.model,
+          environment: row.environment ?? undefined,
+          workdir: row.workdir ?? undefined,
         })
         return { txid: Number(txid) }
       },
@@ -62,6 +64,18 @@ export function createEventsCollection(deps: Deps, sessionId: string) {
         fetchClient,
       },
       getKey: (row) => `${String(row.sessionId)}:${String(row.seq)}`,
+    }),
+  )
+}
+
+/** Read-only synced collection for the global environment registry. */
+export function createEnvironmentsCollection(deps: Omit<Deps, 'write'>) {
+  const fetchClient = deps.authedFetch as unknown as typeof fetch
+  return createCollection(
+    electricCollectionOptions<GenericRow>({
+      id: 'environments',
+      shapeOptions: { url: shapeUrl(deps.serverUrl, 'environments'), fetchClient },
+      getKey: (row) => row.id as string,
     }),
   )
 }
