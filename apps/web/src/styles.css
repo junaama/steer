@@ -730,6 +730,37 @@ textarea {
   border-radius: 50%;
   background: var(--st-running);
 }
+/* follow-up chat composer */
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  padding: 10px 28px 14px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+.composer-input {
+  flex: 1;
+  min-height: 36px;
+  max-height: 120px;
+  resize: vertical;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 11px;
+  color: var(--text-strong);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.composer-input:focus {
+  border-color: var(--accent);
+}
+.composer-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .jumplive {
   position: absolute;
   left: 50%;

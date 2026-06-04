@@ -117,4 +117,55 @@ describe('SessionDetail', () => {
     expect(screen.getByText('write tests')).toBeInTheDocument()
     expect(screen.getByText('ship it')).toBeInTheDocument()
   })
+
+  describe('composer', () => {
+    it('renders the composer textarea and Send button', () => {
+      setup('completed')
+      expect(screen.getByPlaceholderText('Send a follow-up instruction…')).toBeInTheDocument()
+      expect(screen.getByText('Send')).toBeInTheDocument()
+    })
+
+    it('disables the composer when the session is running', () => {
+      setup('running')
+      const textarea = screen.getByPlaceholderText('Interrupt the session first')
+      expect(textarea).toBeDisabled()
+      expect(screen.getByText('Send')).toBeDisabled()
+    })
+
+    it('disables the composer when the session is starting', () => {
+      setup('starting')
+      expect(screen.getByPlaceholderText('Interrupt the session first')).toBeDisabled()
+      expect(screen.getByText('Send')).toBeDisabled()
+    })
+
+    it('disables the composer when the session is awaiting-approval', () => {
+      setup('awaiting-approval')
+      expect(screen.getByPlaceholderText('Interrupt the session first')).toBeDisabled()
+      expect(screen.getByText('Send')).toBeDisabled()
+    })
+
+    it('disables Send when text is blank', () => {
+      setup('completed')
+      expect(screen.getByText('Send')).toBeDisabled()
+    })
+
+    it('calls onSendMessage with trimmed text and clears the textarea on success', async () => {
+      const onSendMessage = vi.fn(async () => {})
+      setup('completed', { onSendMessage })
+      const textarea = screen.getByPlaceholderText('Send a follow-up instruction…') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: '  now add tests  ' } })
+      expect(screen.getByText('Send')).not.toBeDisabled()
+      fireEvent.click(screen.getByText('Send'))
+      await vi.waitFor(() => expect(onSendMessage).toHaveBeenCalledWith('now add tests'))
+      // textarea is cleared after success
+      await vi.waitFor(() => expect(textarea.value).toBe(''))
+    })
+
+    it('is visible alongside Continue for interrupted sessions', () => {
+      setup('interrupted')
+      expect(screen.getByText('Continue')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Send a follow-up instruction…')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Send a follow-up instruction…')).not.toBeDisabled()
+    })
+  })
 })

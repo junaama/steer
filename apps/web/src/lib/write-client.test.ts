@@ -58,4 +58,21 @@ describe('createWriteClient', () => {
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
     await expect(client.deleteSession('s1')).rejects.toThrow(/403/)
   })
+
+  it('sendMessage POSTs to /sessions/:id/message and returns txid', async () => {
+    const fetchImpl = okFetch('55')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    const txid = await client.sendMessage('sess-42', 'now add tests')
+    expect(txid).toBe('55')
+    const [url, init] = fetchImpl.mock.calls[0]!
+    expect(url).toBe('http://s/sessions/sess-42/message')
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(init!.body as string)).toEqual({ text: 'now add tests' })
+  })
+
+  it('sendMessage throws on non-OK response', async () => {
+    const fetchImpl = vi.fn(async () => new Response('forbidden', { status: 403 }))
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    await expect(client.sendMessage('sess-42', 'hello')).rejects.toThrow(/403/)
+  })
 })

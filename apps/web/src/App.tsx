@@ -254,6 +254,10 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
     else void write.sendControl(session.id, 'override', { toolCallId: id, newArgs: action.newArgs })
   }
 
+  const handleSendMessage = async (text: string): Promise<void> => {
+    await write.sendMessage(session.id, text)
+  }
+
   return (
     <SessionDetail
       title={session.title}
@@ -264,6 +268,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       plan={plan}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
       onContinue={() => void write.setStatus(session.id, 'starting')}
+      onSendMessage={handleSendMessage}
       renderToolControls={(tool) => <InterceptControls tool={tool} onAction={(a) => handleAction(tool, a)} />}
     />
   )
