@@ -55,6 +55,13 @@ describe('SteerClient', () => {
     })
   })
 
+  it('createSession includes the environment routing key when set', async () => {
+    const f = makeFetch(() => res(200, { txid: '5' }))
+    await mk(f).createSession('tok', { id: 's1', title: 'T', task: 'do', model: 'sonnet', environment: 'laptop' })
+    const body = JSON.parse(f.mock.calls[0]![1]!.body as string) as { payload: Record<string, unknown> }
+    expect(body.payload).toMatchObject({ environment: 'laptop' })
+  })
+
   it('sendMessage posts the follow-up to /sessions/:id/message', async () => {
     const f = makeFetch(() => res(200, { txid: '7' }))
     const out = await mk(f).sendMessage('tok', 'sess a', 'add tests')

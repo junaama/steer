@@ -52,6 +52,11 @@ describe('parseArgs', () => {
     expect(parseArgs(['login', '--signup']).flags.signup).toBe(true)
   })
 
+  it('parses --env in space and equals form', () => {
+    expect(parseArgs(['go', '--env', 'laptop']).flags.env).toBe('laptop')
+    expect(parseArgs(['go', '--env=docker']).flags.env).toBe('docker')
+  })
+
   it('parses --session for follow-ups and the ls command', () => {
     expect(parseArgs(['add tests', '--session', 'sess-1'])).toMatchObject({
       command: 'run',

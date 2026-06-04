@@ -62,6 +62,8 @@ export interface RunOpts {
   watch?: boolean
   /** Target an existing session (by id or name) instead of creating a new one. */
   session?: string
+  /** Route a new session to a named environment (the daemon that owns those files). */
+  env?: string
 }
 
 /** Resolve a `--session` argument to exactly one session id, or an error message. */
@@ -112,6 +114,12 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
     return watch(ctx, { sessionId: resolved.id })
   }
 
+  // Resolve the target environment: an explicit --env, else this machine's sticky
+  // default. A passed --env becomes the new sticky default so you type it once.
+  const explicitEnv = opts.env?.trim()
+  if (explicitEnv) await saveCredentials({ ...creds, defaultEnv: explicitEnv }, ctx.home)
+  const environment = explicitEnv || creds.defaultEnv?.trim() || undefined
+
   const id = makeSessionId()
   try {
     await client.createSession(creds.token, {
@@ -119,13 +127,23 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
       title: makeTitle(opts.prompt),
       task: opts.prompt,
       model: opts.model ?? 'sonnet',
+      environment,
     })
   } catch (err) {
     const msg = err instanceof SteerError ? err.message : String(err)
     ctx.io.error(`Could not start session: ${msg}`)
     return 1
   }
-  ctx.io.print(`Started session ${id} — the daemon will pick it up within ~1.5s.`)
+  ctx.io.print(`Started session ${id}`)
+  if (environment) {
+    // The session is pinned to this environment; it stays queued until a daemon
+    // there claims it. Starting that daemon is how you drain the queue.
+    ctx.io.print(
+      `Routed to environment '${environment}'. If no agent is running there, start one: steer-agent --env ${environment}`,
+    )
+  } else {
+    ctx.io.print('The default daemon will pick it up shortly.')
+  }
   if (!opts.watch) {
     ctx.io.print(`Watch it: steer watch ${id}`)
     return 0

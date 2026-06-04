@@ -7,6 +7,8 @@ export interface Credentials {
   serverUrl: string
   token: string
   email: string
+  /** Sticky environment to tag new sessions with (set once via `steer --env`). */
+  defaultEnv?: string
 }
 
 export function configDir(home: string = homedir()): string {
@@ -30,7 +32,14 @@ export async function loadCredentials(home?: string): Promise<Credentials | null
     const raw = await readFile(configPath(home), 'utf8')
     const parsed = JSON.parse(raw) as Partial<Credentials>
     if (!parsed.token || !parsed.serverUrl) return null
-    return { serverUrl: parsed.serverUrl, token: parsed.token, email: parsed.email ?? '' }
+    return {
+      serverUrl: parsed.serverUrl,
+      token: parsed.token,
+      email: parsed.email ?? '',
+      // Only surface a stored default env when present, so a creds round-trip
+      // without one stays byte-for-byte equal.
+      ...(parsed.defaultEnv ? { defaultEnv: parsed.defaultEnv } : {}),
+    }
   } catch {
     return null
   }

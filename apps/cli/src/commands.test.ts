@@ -111,6 +111,34 @@ describe('run', () => {
     expect(out.join('\n')).toContain('steer watch')
   })
 
+  it('--env tags the session, persists the sticky default, and prints routing guidance', async () => {
+    await saveCredentials(creds, home)
+    const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }
+    const { ctx, out } = harness(client)
+    expect(await run(ctx, { prompt: 'fix', env: 'laptop' })).toBe(0)
+    expect(client.createSession.mock.calls[0]![1].environment).toBe('laptop')
+    expect(out.join('\n')).toContain("environment 'laptop'")
+    expect(out.join('\n')).toContain('steer-agent --env laptop')
+    expect((await loadCredentials(home))!.defaultEnv).toBe('laptop')
+  })
+
+  it('reuses a stored default environment when --env is omitted', async () => {
+    await saveCredentials({ ...creds, defaultEnv: 'laptop' }, home)
+    const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }
+    const { ctx } = harness(client)
+    expect(await run(ctx, { prompt: 'fix' })).toBe(0)
+    expect(client.createSession.mock.calls[0]![1].environment).toBe('laptop')
+  })
+
+  it('leaves a session unrouted (default daemon) when no env is set', async () => {
+    await saveCredentials(creds, home)
+    const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }
+    const { ctx, out } = harness(client)
+    expect(await run(ctx, { prompt: 'fix' })).toBe(0)
+    expect(client.createSession.mock.calls[0]![1].environment).toBeUndefined()
+    expect(out.join('\n')).toContain('default daemon')
+  })
+
   it('surfaces a SteerError from createSession', async () => {
     await saveCredentials(creds, home)
     const client = { createSession: vi.fn(async () => { throw new SteerError(401, 'unauthorized') }) }

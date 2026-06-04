@@ -10,6 +10,8 @@ export interface SessionInput {
   title: string
   task?: string
   model?: string
+  /** Route the session to a named environment (the daemon that owns those files). */
+  environment?: string
 }
 
 /** An error carrying the server's HTTP status so commands can react (e.g. 409 → "already registered"). */
@@ -68,7 +70,15 @@ export class SteerClient {
   }
 
   createSession(token: string, input: SessionInput): Promise<{ txid: string }> {
-    const payload = { id: input.id, title: input.title, task: input.task, model: input.model }
+    // `environment` is omitted from the wire when undefined (JSON drops it), so an
+    // unrouted session sends exactly the same payload as before.
+    const payload = {
+      id: input.id,
+      title: input.title,
+      task: input.task,
+      model: input.model,
+      environment: input.environment,
+    }
     return this.request<{ txid: string }>(
       '/writes',
       { method: 'POST', body: JSON.stringify({ collection: 'sessions', op: 'insert', payload }) },
