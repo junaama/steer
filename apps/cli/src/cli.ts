@@ -11,6 +11,7 @@ export interface Flags {
   password?: string
   session?: string
   env?: string
+  workdir?: string
   watch?: boolean
   signup?: boolean
   help?: boolean
@@ -24,7 +25,7 @@ export interface ParsedArgs {
   flags: Flags
 }
 
-const VALUE_FLAGS = new Set(['--server', '--model', '--email', '--password', '--session', '--env'])
+const VALUE_FLAGS = new Set(['--server', '--model', '--email', '--password', '--session', '--env', '--workdir'])
 const COMMANDS = new Set(['login', 'signup', 'logout', 'whoami', 'run', 'watch', 'ls', 'help', 'version'])
 
 function setValueFlag(flags: Flags, key: string, val: string): void {
@@ -34,6 +35,7 @@ function setValueFlag(flags: Flags, key: string, val: string): void {
   else if (key === '--password') flags.password = val
   else if (key === '--session') flags.session = val
   else if (key === '--env') flags.env = val
+  else if (key === '--workdir') flags.workdir = val
 }
 
 /**
@@ -101,7 +103,8 @@ export function usage(): string {
     '  --model <tier>   sonnet | opus | haiku (default sonnet)',
     '  --session <ref>  Target an existing session by id or name (follow-up turn)',
     '  --env <id>       Route a new session to an environment; sticky once set.',
-    '                   Run a daemon there with: steer-agent --env <id>',
+    '                   Run a daemon there with: ./steer-agent --env <id>',
+    '  --workdir <dir>  Directory the session runs in (default: where you ran steer)',
     '  --email <e>      Non-interactive email (or $STEER_EMAIL)',
     '  --password <p>   Non-interactive password (or $STEER_PASSWORD)',
     '  --watch          Stream events after starting',
@@ -131,6 +134,7 @@ export async function dispatch(parsed: ParsedArgs, ctx: Ctx, env: NodeJS.Process
         watch: parsed.flags.watch,
         session: parsed.flags.session,
         env: parsed.flags.env,
+        workdir: parsed.flags.workdir,
       })
     case 'ls':
       return ls(ctx)

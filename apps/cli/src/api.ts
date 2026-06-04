@@ -12,6 +12,8 @@ export interface SessionInput {
   model?: string
   /** Route the session to a named environment (the daemon that owns those files). */
   environment?: string
+  /** The directory the session should run in — the cwd the CLI was launched from. */
+  workdir?: string
 }
 
 /** An error carrying the server's HTTP status so commands can react (e.g. 409 → "already registered"). */
@@ -78,6 +80,7 @@ export class SteerClient {
       task: input.task,
       model: input.model,
       environment: input.environment,
+      workdir: input.workdir,
     }
     return this.request<{ txid: string }>(
       '/writes',

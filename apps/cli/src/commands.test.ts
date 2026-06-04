@@ -118,8 +118,20 @@ describe('run', () => {
     expect(await run(ctx, { prompt: 'fix', env: 'laptop' })).toBe(0)
     expect(client.createSession.mock.calls[0]![1].environment).toBe('laptop')
     expect(out.join('\n')).toContain("environment 'laptop'")
-    expect(out.join('\n')).toContain('steer-agent --env laptop')
+    expect(out.join('\n')).toContain('./steer-agent --env laptop')
     expect((await loadCredentials(home))!.defaultEnv).toBe('laptop')
+  })
+
+  it('binds the session to the cwd by default, and --workdir overrides it', async () => {
+    await saveCredentials(creds, home)
+    const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }
+    const a = harness(client, { cwd: () => '/dev/projectA' })
+    expect(await run(a.ctx, { prompt: 'fix' })).toBe(0)
+    expect(client.createSession.mock.calls[0]![1].workdir).toBe('/dev/projectA')
+
+    const b = harness(client, { cwd: () => '/dev/projectA' })
+    expect(await run(b.ctx, { prompt: 'fix', workdir: '/dev/projectB' })).toBe(0)
+    expect(client.createSession.mock.calls[1]![1].workdir).toBe('/dev/projectB')
   })
 
   it('reuses a stored default environment when --env is omitted', async () => {

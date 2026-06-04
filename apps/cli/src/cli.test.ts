@@ -57,6 +57,11 @@ describe('parseArgs', () => {
     expect(parseArgs(['go', '--env=docker']).flags.env).toBe('docker')
   })
 
+  it('parses --workdir in space and equals form', () => {
+    expect(parseArgs(['go', '--workdir', '/dev/projectA']).flags.workdir).toBe('/dev/projectA')
+    expect(parseArgs(['go', '--workdir=/dev/projectB']).flags.workdir).toBe('/dev/projectB')
+  })
+
   it('parses --session for follow-ups and the ls command', () => {
     expect(parseArgs(['add tests', '--session', 'sess-1'])).toMatchObject({
       command: 'run',

@@ -17,6 +17,8 @@ export interface Ctx {
   home?: string
   sleep?: (ms: number) => Promise<void>
   now?: () => number
+  /** The directory the CLI was launched from — bound to new sessions as their workdir. */
+  cwd?: () => string
 }
 
 export function makeSessionId(): string {
@@ -64,6 +66,8 @@ export interface RunOpts {
   session?: string
   /** Route a new session to a named environment (the daemon that owns those files). */
   env?: string
+  /** Override the directory the session runs in (defaults to the CLI's cwd). */
+  workdir?: string
 }
 
 /** Resolve a `--session` argument to exactly one session id, or an error message. */
@@ -119,6 +123,9 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
   // session actually starts, so a failed create never pins a bad default.)
   const explicitEnv = opts.env?.trim()
   const environment = explicitEnv || creds.defaultEnv?.trim() || undefined
+  // Bind the session to the directory the CLI was called from, so the agent runs
+  // on these files by default. `--workdir` overrides it.
+  const workdir = opts.workdir?.trim() || (ctx.cwd ?? process.cwd)()
 
   const id = makeSessionId()
   try {
@@ -128,6 +135,7 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
       task: opts.prompt,
       model: opts.model ?? 'sonnet',
       environment,
+      workdir,
     })
   } catch (err) {
     const msg = err instanceof SteerError ? err.message : String(err)
@@ -140,7 +148,7 @@ export async function run(ctx: Ctx, opts: RunOpts): Promise<number> {
     // The session is pinned to this environment; it stays queued until a daemon
     // there claims it. Starting that daemon is how you drain the queue.
     ctx.io.print(
-      `Routed to environment '${environment}'. If no agent is running there, start one: steer-agent --env ${environment}`,
+      `Routed to environment '${environment}'. If no agent is running there, start one: ./steer-agent --env ${environment}`,
     )
   } else {
     ctx.io.print('The default daemon will pick it up shortly.')
