@@ -15,6 +15,6 @@
     "migrate": "pnpm --filter @steer/server migrate",
     "seed": "pnpm --filter @steer/server seed",
     "steer": "pnpm --filter @steer/cli steer",
-    "up": "docker compose up --build"
+    "up": "docker compose $([ -f .env.local ] && echo --env-file .env.local) up --build"
   }
 }
