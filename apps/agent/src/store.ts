@@ -3,6 +3,7 @@ import {
   events,
   controls,
   sessions,
+  environments,
   parseEventPayload,
   type EventType,
   type ControlType,
@@ -42,6 +43,13 @@ export interface AgentStore {
    * claim returns false, so two daemons never run the same session.
    */
   claimSession(sessionId: string, owner: string): Promise<boolean>
+  /**
+   * Register (or re-register) this daemon in the environments table. Idempotent:
+   * ON CONFLICT (id) updates env, host, and last_seen_at.
+   */
+  upsertEnvironment(id: string, env: string | null, host: string): Promise<void>
+  /** Advance `last_seen_at` for a registered environment (heartbeat). */
+  heartbeat(id: string): Promise<void>
 }
 
 export function createDbStore(db: Db): AgentStore {
@@ -98,6 +106,23 @@ export function createDbStore(db: Db): AgentStore {
         )
         .returning({ id: sessions.id })
       return won.length > 0
+    },
+
+    async upsertEnvironment(id, env, host) {
+      await db
+        .insert(environments)
+        .values({ id, env, host })
+        .onConflictDoUpdate({
+          target: environments.id,
+          set: { env, host, lastSeenAt: new Date() },
+        })
+    },
+
+    async heartbeat(id) {
+      await db
+        .update(environments)
+        .set({ lastSeenAt: new Date() })
+        .where(eq(environments.id, id))
     },
   }
 }

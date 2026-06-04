@@ -2,6 +2,7 @@ import { ShapeStream } from '@electric-sql/client'
 import { hostname } from 'node:os'
 import { createPool, createDb } from './db.js'
 import { createRunner } from './daemon.js'
+import { createDbStore } from './store.js'
 import { subscribeRunnable } from './intake.js'
 
 export interface DaemonOptions {
@@ -9,6 +10,9 @@ export interface DaemonOptions {
   env: string | null
   electricUrl?: string
 }
+
+/** Heartbeat interval — the daemon touches `last_seen_at` this often. */
+const HEARTBEAT_MS = 15_000
 
 /**
  * Boot the portless agent daemon: subscribe to the sessions shape (PRD 4.d) for
@@ -23,6 +27,12 @@ export function startDaemon(opts: DaemonOptions): () => void {
   // The claim owner must be STABLE so a follow-up turn / crash-resume re-claims
   // the same session: the env id when set, else the hostname for the default daemon.
   const owner = opts.env ?? hostname()
+
+  // Self-register in the environment registry so the web UI can list this daemon.
+  const store = createDbStore(db)
+  store.upsertEnvironment(owner, opts.env ?? null, hostname())
+  const beat = setInterval(() => void store.heartbeat(owner), HEARTBEAT_MS)
+
   const active = new Set<string>()
   const run = createRunner(db, active, owner)
   const stream = new ShapeStream({
@@ -31,8 +41,12 @@ export function startDaemon(opts: DaemonOptions): () => void {
   })
   // eslint-disable-next-line no-console
   console.log(`[agent] daemon up (outbound only) — env=${opts.env ?? 'default'}, owner=${owner}`)
-  return subscribeRunnable(stream, run, opts.env, (err) => {
+  const stop = subscribeRunnable(stream, run, opts.env, (err) => {
     // eslint-disable-next-line no-console
     console.error('[agent] sync error', err)
   })
+  return () => {
+    clearInterval(beat)
+    stop()
+  }
 }

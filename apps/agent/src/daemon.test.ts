@@ -16,6 +16,8 @@ function fakeStore(over: Partial<AgentStore> = {}): AgentStore {
     listUnconsumedControls: vi.fn(async () => []),
     consumeControl: vi.fn(async () => {}),
     claimSession: vi.fn(async () => true),
+    upsertEnvironment: vi.fn(async () => {}),
+    heartbeat: vi.fn(async () => {}),
     ...over,
   }
 }

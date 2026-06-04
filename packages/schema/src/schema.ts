@@ -113,6 +113,23 @@ export const controls = pgTable(
 )
 
 /**
+ * Live environment registry. Each daemon self-registers on boot and heartbeats
+ * `last_seen_at` while running. Electric syncs the table to the web app so the
+ * New-session modal can list environments with online/offline status.
+ *
+ * `id` is the daemon's stable claim owner (= `--env` name or hostname for the
+ * default daemon). `env` is the routing value written to `sessions.environment`
+ * (null = the default / unrouted daemon). `host` is the machine hostname.
+ */
+export const environments = pgTable('environments', {
+  id: text('id').primaryKey(),
+  env: text('env'),
+  host: text('host').notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/**
  * Auth identity. `users` + `auth_sessions` back the self-hosted session auth
  * A high-entropy token is the bearer secret, and only its
  * SHA-256 hash is ever persisted (as `auth_sessions.id`), so the database never
