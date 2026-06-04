@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { decideRestore, type AuthUser, type MeProbe } from './restore'
 
 /**
  * Self-hosted session auth client. Replaces WorkOS AuthKit: there is no hosted
@@ -10,11 +11,6 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:8080'
 const TOKEN_KEY = 'steer_token'
-
-interface AuthUser {
-  id: string
-  email: string
-}
 
 function readToken(): string | null {
   try {
@@ -61,7 +57,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const [user, setUser] = useState<AuthUser | null>(null)
 
   // On load, restore the persisted token by validating it against /auth/me.
-  // An invalid/expired token is discarded so the user lands on the sign-in gate.
+  // Only an explicit 401/403 discards the token; a network error or 5xx (the
+  // server is mid-restart during `docker compose up`) keeps it, so a transient
+  // outage never logs the user out. See decideRestore for the policy.
   useEffect(() => {
     let cancelled = false
     const token = readToken()
@@ -69,20 +67,24 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       setIsLoading(false)
       return
     }
-    fetch(`${SERVER_URL}/auth/me`, { headers: { authorization: `Bearer ${token}` } })
-      .then(async (res) => {
-        if (cancelled) return
-        if (res.ok) {
-          const body = (await res.json()) as { user: AuthUser }
-          setUser(body.user)
-        } else {
-          writeToken(null)
-        }
-      })
-      .catch(() => writeToken(null))
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
+    const probe = async (): Promise<MeProbe> => {
+      try {
+        const res = await fetch(`${SERVER_URL}/auth/me`, { headers: { authorization: `Bearer ${token}` } })
+        const user = res.ok ? ((await res.json()) as { user: AuthUser }).user : null
+        return { ok: true, status: res.status, user }
+      } catch {
+        return { ok: false }
+      }
+    }
+    void probe().then((result) => {
+      if (cancelled) return
+      const decision = decideRestore(result)
+      if (decision.kind === 'authed') setUser(decision.user)
+      else if (decision.kind === 'clear') writeToken(null)
+      // 'keep' — leave the token in place; a reload once the server is back
+      // restores the session without forcing the user to sign in again.
+      setIsLoading(false)
+    })
     return () => {
       cancelled = true
     }
