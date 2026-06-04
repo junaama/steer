@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Convenience launcher for the portless agent daemon — the run-anywhere half of
+# Steer, parallel to ./steer. `./steer-agent --env <id>` runs a daemon bound to
+# that environment, so a session routed there (`./steer "..." --env <id>`) runs
+# against THIS machine's filesystem. No build step.
+#
+# Connects OUTBOUND ONLY to Postgres + Electric (no inbound port). DATABASE_URL /
+# ELECTRIC_URL default to the local docker stack; LLM creds load from .env.
+# Override Electric for the docker stack (which publishes it on 3000):
+#   ELECTRIC_URL=http://localhost:3000 ./steer-agent --env laptop
+DIR="$(cd "$(dirname "$0")/apps/agent" && pwd)"
+exec pnpm --dir "$DIR" run agent -- "$@"
