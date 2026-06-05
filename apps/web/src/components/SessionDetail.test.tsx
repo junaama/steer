@@ -50,6 +50,20 @@ describe('SessionDetail', () => {
     expect(screen.queryByText('Continue')).not.toBeInTheDocument()
   })
 
+  it('places Interrupt in the composer next to Send while live', () => {
+    setup('running')
+    const composer = screen.getByText('Send').closest('.composer')
+    expect(composer).not.toBeNull()
+    // Interrupt is co-located with Send in the composer, not in the header actions.
+    expect(composer).toContainElement(screen.getByText('Interrupt'))
+    expect(screen.getByText('Interrupt').closest('.dh-actions')).toBeNull()
+  })
+
+  it('hides Interrupt from the composer when not live', () => {
+    setup('completed')
+    expect(screen.queryByText('Interrupt')).not.toBeInTheDocument()
+  })
+
   it('shows Continue when interrupted and fires the callback', () => {
     const p = setup('interrupted')
     fireEvent.click(screen.getByText('Continue'))

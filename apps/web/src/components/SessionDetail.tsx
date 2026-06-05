@@ -67,11 +67,6 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
         </div>
         <StatusPill status={props.status} />
         <div className="dh-actions">
-          {live && (
-            <button className="btn sm" onClick={props.onInterrupt}>
-              Interrupt
-            </button>
-          )}
           {props.status === 'interrupted' && (
             <button className="btn sm primary" onClick={props.onContinue}>
               Continue
@@ -119,6 +114,11 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
           >
             {sending ? 'Sending…' : 'Send'}
           </button>
+          {live && (
+            <button className="btn sm" onClick={props.onInterrupt}>
+              Interrupt
+            </button>
+          )}
         </div>
       </div>
     </section>
