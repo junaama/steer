@@ -34,6 +34,41 @@ describe('InterceptControls', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'reject' })
   })
 
+  it('prompts diff-review and sends approve/reject for the proposal toolCallId', () => {
+    // A side-effecting file edit carrying a before/after diff. Mirrors App.tsx:
+    // onAction maps to sendControl(sessionId, kind, { toolCallId }), so we assert
+    // the gate control is sent with THIS proposal's toolCallId.
+    const sendControl = vi.fn()
+    const t = tool('pending', {
+      toolCallId: 'edit-7',
+      name: 'write_file',
+      toolKind: 'side-effecting',
+      args: { path: 'src/auth.ts' },
+      before: 'return null',
+      after: 'return session',
+    })
+    const onAction = (action: { type: string }): void => {
+      if (action.type === 'approve') sendControl('approve', { toolCallId: t.toolCallId })
+      else if (action.type === 'reject') sendControl('reject', { toolCallId: t.toolCallId })
+    }
+    render(<InterceptControls tool={t} onAction={onAction} />)
+
+    // diff-review prompt is shown for a proposal that carries a change
+    expect(screen.getByText('Review the diff — applies only when you approve')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Approve'))
+    expect(sendControl).toHaveBeenCalledWith('approve', { toolCallId: 'edit-7' })
+    fireEvent.click(screen.getByText('Reject'))
+    expect(sendControl).toHaveBeenCalledWith('reject', { toolCallId: 'edit-7' })
+  })
+
+  it('keeps the generic prompt for a pending tool with no proposed diff', () => {
+    const t = tool('pending', { name: 'run_command', toolKind: 'side-effecting', args: { command: 'rm x' } })
+    render(<InterceptControls tool={t} onAction={vi.fn()} />)
+    expect(screen.getByText('Will not run until you act')).toBeInTheDocument()
+    expect(screen.queryByText('Review the diff — applies only when you approve')).not.toBeInTheDocument()
+  })
+
   it('shows cancel & swap / edit / cancel for a running read-only tool', () => {
     const onAction = vi.fn()
     render(<InterceptControls tool={tool('running')} onAction={onAction} />)

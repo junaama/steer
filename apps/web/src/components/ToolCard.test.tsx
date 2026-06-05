@@ -34,9 +34,42 @@ describe('ToolCard', () => {
     )
     const diff = screen.getByTestId('diff')
     expect(diff).toBeInTheDocument()
-    expect(within(diff).getByText('return null')).toBeInTheDocument()
-    expect(within(diff).getByText('return session')).toBeInTheDocument()
+    // The diff code is syntax-highlighted, so `return` is wrapped in its own
+    // token span; assert against the line's full text content rather than a
+    // single text node.
+    const codeText = within(diff)
+      .getAllByText((_content, el) => el?.classList.contains('code') ?? false)
+      .map((el) => el.textContent)
+    expect(codeText).toContain('return null')
+    expect(codeText).toContain('return session')
     expect(within(diff).getByText('src/login.ts')).toBeInTheDocument()
+  })
+
+  it('AE2: shows the proposed diff but no applied/result block until tool_result arrives', () => {
+    // A side-effecting file edit, proposed but not yet approved/applied:
+    // result is still null, so the file is shown as a *proposal*, not applied.
+    const proposed = tool({
+      name: 'write_file',
+      toolKind: 'side-effecting',
+      status: 'pending',
+      args: { path: 'src/login.ts' },
+      before: 'return null',
+      after: 'return session',
+      result: null,
+    })
+    const { rerender } = render(<ToolCard tool={proposed} />)
+    expect(screen.getByTestId('diff')).toBeInTheDocument()
+    expect(screen.getByText('Proposed change')).toBeInTheDocument()
+    // not applied yet: neither the Outcome label nor a result/stream block
+    expect(screen.queryByText('Outcome')).not.toBeInTheDocument()
+    expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tool-tc1-stream')).not.toBeInTheDocument()
+
+    // tool_result arrives → the applied Outcome block appears alongside the diff
+    rerender(<ToolCard tool={{ ...proposed, status: 'done', result: 'Wrote src/login.ts' }} />)
+    expect(screen.getByText('Outcome')).toBeInTheDocument()
+    expect(screen.getByText('Wrote src/login.ts')).toBeInTheDocument()
+    expect(screen.getByTestId('diff')).toBeInTheDocument()
   })
 
   it('renders a result block (not a diff) for non-file tools', () => {

@@ -22,10 +22,21 @@ export function InterceptControls({ tool, onAction }: InterceptControlsProps): J
 
   const close = (): void => setMode('view')
 
+  // A pending tool that carries a proposed file change (before/after) is shown
+  // as a reviewable diff above these controls, so prompt the operator to review
+  // the diff rather than a generic "will not run". Approve/reject semantics are
+  // unchanged — only the prompt text reflects the diff-review context.
+  const isDiffReview = pending && tool.after !== undefined
+  const eyebrow = pending
+    ? isDiffReview
+      ? 'Review the diff — applies only when you approve'
+      : 'Will not run until you act'
+    : 'Read-only · intervene live'
+
   return (
-    <div className="intercept">
+    <div className="intercept" data-diff-review={isDiffReview ? true : undefined}>
       <div className="eyebrow" style={{ marginBottom: 8 }}>
-        {pending ? 'Will not run until you act' : 'Read-only · intervene live'}
+        {eyebrow}
       </div>
 
       {mode === 'view' && (
