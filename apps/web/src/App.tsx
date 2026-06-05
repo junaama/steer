@@ -15,6 +15,7 @@ import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './data/d
 import { buildTrace, latestPlan, pendingQuestion, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
+import type { ImageAttachment } from '@steer/schema'
 import type { SessionRow, EventRow, EnvironmentRow } from './data/types.js'
 
 interface Deps {
@@ -145,7 +146,7 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
     updatedAt: new Date(r.updatedAt).getTime(),
   }))
 
-  const createSession = (value: { task: string; model: string; environment?: string; workdir?: string }): void => {
+  const createSession = (value: { task: string; model: string; environment?: string; workdir?: string; image?: ImageAttachment }): void => {
     const id = randomId('sess')
     const title = value.task.length > 42 ? `${value.task.slice(0, 40).trim()}…` : value.task
     const now = new Date().toISOString()
@@ -158,6 +159,9 @@ function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
       model: value.model,
       environment: value.environment ?? null,
       workdir: value.workdir ?? null,
+      // Rides the optimistic insert so the collection's onInsert forwards the image
+      // to the write boundary (R14). Not rendered locally; the daemon reads it.
+      taskImage: value.image ?? null,
       createdAt: now,
       updatedAt: now,
     })

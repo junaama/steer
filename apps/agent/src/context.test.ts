@@ -145,6 +145,47 @@ describe('buildContext', () => {
     ])
   })
 
+  it('projects an attached image as an image content part for a vision-capable model (R14)', () => {
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    const msgs = buildContext('describe this screenshot', [], { taskImage: image, vision: true })
+    // The leading task becomes a multi-part user message: the text PLUS an image
+    // part carrying the assembled data URL the AI SDK forwards to the model.
+    expect(msgs).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this screenshot' },
+          { type: 'image', image: 'data:image/png;base64,iVBORw0KGgo' },
+        ],
+      },
+    ])
+  })
+
+  it('drops the image and notes the omission for a non-vision model (graceful degradation)', () => {
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    const msgs = buildContext('describe this screenshot', [], { taskImage: image, vision: false })
+    // The task stays a plain text user turn; a system note records that an image
+    // existed but the model could not read it — no throw, the agent still runs.
+    expect(msgs).toEqual([
+      { role: 'user', content: 'describe this screenshot' },
+      { role: 'system', content: '[image omitted — the selected model has no vision support]' },
+    ])
+  })
+
+  it('leaves the task as plain text when no image is attached (vision flag irrelevant)', () => {
+    expect(buildContext('do the thing', [], { vision: true })).toEqual([
+      { role: 'user', content: 'do the thing' },
+    ])
+    expect(buildContext('do the thing', [], { taskImage: null, vision: true })).toEqual([
+      { role: 'user', content: 'do the thing' },
+    ])
+  })
+
+  it('ignores an attached image when there is no task (no leading message to carry it)', () => {
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    expect(buildContext(null, [], { taskImage: image, vision: true })).toEqual([])
+  })
+
   it('projects a substitution as the executed tool with a system note (no extra inference)', () => {
     const msgs = buildContext(null, [
       ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),

@@ -53,6 +53,23 @@ describe('createWriteClient', () => {
     expect('workdir' in body.payload).toBe(false)
   })
 
+  it('carries an attached image in the createSession write payload (R14)', async () => {
+    const fetchImpl = okFetch('200')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    await client.createSession({ id: 's-img', title: 'fix layout', task: 'see image', image })
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string)
+    expect(body.payload.image).toEqual(image)
+  })
+
+  it('omits image from createSession when none is attached', async () => {
+    const fetchImpl = okFetch('200')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    await client.createSession({ id: 's-noimg', title: 'plain' })
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string)
+    expect('image' in body.payload).toBe(false)
+  })
+
   it('throws on a non-2xx response', async () => {
     const fetchImpl = vi.fn(async () => new Response('nope', { status: 403 }))
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })

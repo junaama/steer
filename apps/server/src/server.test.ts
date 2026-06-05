@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { FastifyInstance } from 'fastify'
+import { MAX_IMAGE_BASE64_BYTES } from '@steer/schema'
 import { buildServer } from './app.js'
 import { createDb } from './db.js'
 import type { AuthVerifier } from './auth.js'
@@ -228,6 +229,56 @@ describe('POST /writes', () => {
       payload: { collection: 'sessions', op: 'insert', payload: { id: 'dup', title: 'again' } },
     })
     expect(r.statusCode).toBe(400)
+  })
+
+  // R14 vision input: an optional image rides the initial task. The write boundary
+  // validates the `image/*` rule + size cap (shared schema) and persists it to the
+  // `task_image` jsonb column that Electric syncs out to the daemon.
+  it('persists an attached image on session create (R14)', async () => {
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'insert', payload: { id: 's-img', title: 'fix layout', task: 'see screenshot', image } },
+    })
+    expect(r.statusCode).toBe(200)
+    const rows = await pool.query('select task_image from sessions where id=$1', ['s-img'])
+    expect(rows.rows[0].task_image).toEqual(image)
+  })
+
+  it('rejects an over-cap image at the write boundary (400)', async () => {
+    // 1 byte past the cap (the constant lives in @steer/schema; this stays in lockstep).
+    const overCap = 'a'.repeat(MAX_IMAGE_BASE64_BYTES + 1)
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'insert', payload: { id: 's-big', title: 't', image: { mediaType: 'image/png', dataBase64: overCap } } },
+    })
+    expect(r.statusCode).toBe(400)
+    expect(r.json().error).toBe('invalid payload')
+    // The session was NOT created (rejected before insert).
+    const rows = await pool.query('select id from sessions where id=$1', ['s-big'])
+    expect(rows.rows).toHaveLength(0)
+  })
+
+  it('rejects a non-image media type at the write boundary (400)', async () => {
+    const r = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: { collection: 'sessions', op: 'insert', payload: { id: 's-pdf', title: 't', image: { mediaType: 'application/pdf', dataBase64: 'JVBERi0=' } } },
+    })
+    expect(r.statusCode).toBe(400)
+    const rows = await pool.query('select id from sessions where id=$1', ['s-pdf'])
+    expect(rows.rows).toHaveLength(0)
+  })
+
+  it('leaves task_image null when no image is attached (existing flow unchanged)', async () => {
+    await insertSession('tokenA', 's-plain', 'plain task')
+    const rows = await pool.query('select task_image from sessions where id=$1', ['s-plain'])
+    expect(rows.rows[0].task_image).toBeNull()
   })
 })
 

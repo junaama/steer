@@ -1,5 +1,5 @@
 import { isChangeMessage, type Message } from '@electric-sql/client'
-import type { SessionStatus } from '@steer/schema'
+import { imageAttachmentSchema, type ImageAttachment, type SessionStatus } from '@steer/schema'
 
 /**
  * Session intake via Electric SQL sync (PRD 4.d). The daemon learns which
@@ -15,6 +15,32 @@ export interface SessionIntent {
   task: string | null
   /** Absolute directory the session should run in (the CLI's cwd); null = daemon root. */
   workdir: string | null
+  /** An operator-attached image on the initial task (R14); null when none/invalid. */
+  taskImage: ImageAttachment | null
+}
+
+/**
+ * Coerce the synced `task_image` shape value into a validated `ImageAttachment`,
+ * or null. Electric delivers a jsonb column as STRINGIFIED JSON in the raw shape
+ * (same as the events `payload` the web decoder handles), so accept either a JSON
+ * string or an already-parsed object, then re-validate it against the shared
+ * schema (mediaType + base64 + cap) since it is still untrusted-shape data
+ * crossing into the agent. Anything malformed — bad JSON, wrong shape, over-cap —
+ * degrades to null: the session runs imageless rather than failing, and the model
+ * is never sent a broken image part.
+ */
+function imageFromRow(value: unknown): ImageAttachment | null {
+  if (value === null || value === undefined || value === '') return null
+  let candidate: unknown = value
+  if (typeof value === 'string') {
+    try {
+      candidate = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  const parsed = imageAttachmentSchema.safeParse(candidate)
+  return parsed.success ? parsed.data : null
 }
 
 // 'starting' = a fresh task; 'running' = a crashed run to resume (it replays in
@@ -60,6 +86,7 @@ export function runnableFromMessages(messages: Message[], myEnv: string | null):
       model: typeof row.model === 'string' ? row.model : 'sonnet',
       task: typeof row.task === 'string' ? row.task : null,
       workdir: typeof row.workdir === 'string' ? row.workdir : null,
+      taskImage: imageFromRow(row.task_image),
     })
   }
   return out

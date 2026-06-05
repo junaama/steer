@@ -19,6 +19,57 @@ export const controlTypeSchema = z.enum(CONTROL_TYPES)
 export const toolStatusSchema = z.enum(TOOL_STATUSES)
 export const toolKindSchema = z.enum(TOOL_KINDS)
 
+/**
+ * Size cap on an attached image's base64 payload (R14). There is no object store
+ * and the image rides a Postgres row that Electric syncs out to the daemon, so an
+ * unbounded image would bloat both the DB and every sync — see the plan's Risks.
+ * ~1.5 MB of base64 ≈ ~1.1 MB of raw image, comfortably enough for a screenshot,
+ * an error capture, or a design mock while keeping the synced row bounded. Both
+ * the server write boundary and the web composer enforce this same constant.
+ */
+export const MAX_IMAGE_BASE64_BYTES = 1_500_000
+
+// Standard base64 alphabet (with optional `=` padding). Validating the encoding
+// up front means the server never persists a malformed payload that the provider
+// SDK would later reject mid-turn.
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/
+
+/**
+ * A validated operator-attached image (R14). `mediaType` must be an `image/*`
+ * MIME type (never log or trust an arbitrary type), and `dataBase64` must be
+ * non-empty, validly base64-encoded, and within the size cap. Used on session
+ * create (the initial task) and enforced at the server write boundary; an
+ * over-cap or non-image payload is rejected with a clear message rather than
+ * persisted. The byte length is measured on the base64 string itself (what the
+ * row actually stores), so the cap bounds the synced payload directly.
+ */
+export const imageAttachmentSchema = z
+  .object({
+    mediaType: z
+      .string()
+      .regex(/^image\/[-+.\w]+$/, { message: 'mediaType must be an image/* MIME type' }),
+    dataBase64: z
+      .string()
+      .min(1, { message: 'image data must not be empty' })
+      .regex(BASE64_RE, { message: 'image data must be valid base64' }),
+  })
+  .strict()
+  .refine((img) => img.dataBase64.length <= MAX_IMAGE_BASE64_BYTES, {
+    message: `image exceeds the ${MAX_IMAGE_BASE64_BYTES}-byte base64 size cap`,
+    path: ['dataBase64'],
+  })
+
+export type ImageAttachmentInput = z.infer<typeof imageAttachmentSchema>
+
+/**
+ * Parse + validate an attached image, throwing a `ZodError` on a malformed,
+ * non-image, or over-cap payload. The single entry point the server write
+ * boundary uses so the cap and `image/*` rule are enforced in exactly one place.
+ */
+export function parseImageAttachment(input: unknown): ImageAttachmentInput {
+  return imageAttachmentSchema.parse(input)
+}
+
 /** Row schemas derived from the drizzle tables — never hand-authored. */
 export const sessionInsertSchema = createInsertSchema(sessions)
 export const sessionSelectSchema = createSelectSchema(sessions)

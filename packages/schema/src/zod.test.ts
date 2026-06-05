@@ -5,6 +5,9 @@ import {
   controlPayloadSchemas,
   parseEventPayload,
   parseControlPayload,
+  parseImageAttachment,
+  imageAttachmentSchema,
+  MAX_IMAGE_BASE64_BYTES,
   sessionInsertSchema,
   sessionSelectSchema,
 } from './zod.js'
@@ -187,6 +190,60 @@ describe('control payloads', () => {
   })
 })
 
+describe('image attachment (R14, vision input)', () => {
+  const tinyBase64 = 'iVBORw0KGgo' // a valid base64 fragment
+
+  it('round-trips a valid image/* attachment', () => {
+    const img = { mediaType: 'image/png', dataBase64: tinyBase64 }
+    expect(parseImageAttachment(img)).toEqual(img)
+  })
+
+  it('accepts other image/* MIME types', () => {
+    expect(parseImageAttachment({ mediaType: 'image/jpeg', dataBase64: tinyBase64 }).mediaType).toBe('image/jpeg')
+    expect(parseImageAttachment({ mediaType: 'image/svg+xml', dataBase64: tinyBase64 }).mediaType).toBe('image/svg+xml')
+  })
+
+  it('rejects a non-image MIME type', () => {
+    expect(() => parseImageAttachment({ mediaType: 'text/plain', dataBase64: tinyBase64 })).toThrow()
+    expect(() => parseImageAttachment({ mediaType: 'application/pdf', dataBase64: tinyBase64 })).toThrow()
+  })
+
+  it('rejects an empty data payload', () => {
+    expect(() => parseImageAttachment({ mediaType: 'image/png', dataBase64: '' })).toThrow()
+  })
+
+  it('rejects data that is not valid base64', () => {
+    expect(() => parseImageAttachment({ mediaType: 'image/png', dataBase64: 'not base64!!' })).toThrow()
+  })
+
+  it('rejects unknown extra keys (strict)', () => {
+    expect(() =>
+      parseImageAttachment({ mediaType: 'image/png', dataBase64: tinyBase64, extra: 'x' }),
+    ).toThrow()
+  })
+
+  it('accepts an image exactly at the size cap', () => {
+    const atCap = 'a'.repeat(MAX_IMAGE_BASE64_BYTES)
+    expect(parseImageAttachment({ mediaType: 'image/png', dataBase64: atCap }).dataBase64.length).toBe(
+      MAX_IMAGE_BASE64_BYTES,
+    )
+  })
+
+  it('rejects an over-cap image with a clear message', () => {
+    const overCap = 'a'.repeat(MAX_IMAGE_BASE64_BYTES + 1)
+    const result = imageAttachmentSchema.safeParse({ mediaType: 'image/png', dataBase64: overCap })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.message.includes('size cap'))).toBe(true)
+    }
+  })
+
+  it('rejects a missing mediaType or dataBase64', () => {
+    expect(() => parseImageAttachment({ dataBase64: tinyBase64 })).toThrow()
+    expect(() => parseImageAttachment({ mediaType: 'image/png' })).toThrow()
+  })
+})
+
 describe('drizzle-zod row schemas', () => {
   it('accepts a valid session insert', () => {
     const r = sessionInsertSchema.parse({ id: 's1', userId: 'u1', title: 'Add auth' })
@@ -226,6 +283,7 @@ describe('drizzle-zod row schemas', () => {
       environment: 'laptop',
       claimedBy: 'laptop',
       workdir: '/dev/app',
+      taskImage: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -245,11 +303,31 @@ describe('drizzle-zod row schemas', () => {
       environment: null,
       claimedBy: null,
       workdir: null,
+      taskImage: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
     expect(r.environment).toBeNull()
     expect(r.claimedBy).toBeNull()
     expect(r.workdir).toBeNull()
+  })
+
+  it('round-trips a task_image attachment on a selected session row (R14)', () => {
+    const taskImage = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    const r = sessionSelectSchema.parse({
+      id: 's1',
+      userId: 'u1',
+      title: 'Add auth',
+      task: 'fix this layout',
+      lastStatus: 'starting',
+      model: 'sonnet',
+      environment: null,
+      claimedBy: null,
+      workdir: null,
+      taskImage,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    expect(r.taskImage).toEqual(taskImage)
   })
 })

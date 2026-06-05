@@ -11,6 +11,7 @@ import {
   controlTypeSchema,
   parseEventPayload,
   parseControlPayload,
+  imageAttachmentSchema,
 } from '@steer/schema'
 import type { Db } from './db.js'
 import { type Tx, WriteError, assertOwns, captureTxid } from './session-tx.js'
@@ -43,6 +44,12 @@ async function applyWrite(
           // verbatim; the owning daemon confines it to its root, so an out-of-root
           // path is harmless here (untrusted-but-stored, like environment).
           workdir: z.string().min(1).optional(),
+          // An optional image attached to the initial task (R14, vision input).
+          // Validated by the shared schema, which enforces the `image/*` MIME rule
+          // AND the size cap here at the write boundary so an over-cap or non-image
+          // payload is rejected with a clear ZodError rather than persisted. Never
+          // log its bytes. Absent = unchanged (the common no-image path).
+          image: imageAttachmentSchema.optional(),
         })
         .parse(payload)
       // user_id is injected server-side; any client-supplied user_id is ignored.
@@ -55,6 +62,7 @@ async function applyWrite(
         model: p.model ?? 'sonnet',
         environment: p.environment ?? null,
         workdir: p.workdir ?? null,
+        taskImage: p.image ?? null,
         lastStatus: 'starting',
       })
       return

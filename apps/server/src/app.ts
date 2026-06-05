@@ -21,7 +21,12 @@ export interface ServerOptions {
  * in tests with a fake verifier and a fake Electric upstream.
  */
 export function buildServer(opts: ServerOptions): FastifyInstance {
-  const app = Fastify({ logger: false })
+  // Raise the request body limit above Fastify's 1 MiB default so a session-create
+  // carrying an at-cap attached image (R14: base64 image up to MAX_IMAGE_BASE64_BYTES,
+  // ~1.5 MB, plus JSON envelope overhead) reaches the write handler and is rejected
+  // by the SCHEMA size cap with a clear 400 — not silently dropped as a 413 by the
+  // transport. Kept tight (2 MiB) so the boundary still bounds the payload.
+  const app = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024 })
 
   // CORS first: a preflight (OPTIONS, sent without the bearer token) must
   // short-circuit before the auth gate below, or the browser's preflight 401s.

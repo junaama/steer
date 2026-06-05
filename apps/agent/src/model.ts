@@ -1,11 +1,11 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { openai } from '@ai-sdk/openai'
 import { streamText, jsonSchema, tool, type CoreMessage, type LanguageModel, type ToolSet } from 'ai'
-import { toolArgSchemas, TOOL_DESCRIPTIONS, type ToolName } from '@steer/schema'
+import { toolArgSchemas, TOOL_DESCRIPTIONS, type ToolName, type ImageAttachment } from '@steer/schema'
 import type { ModelDriver, ToolCall, TurnHooks, TurnResult } from './loop.js'
 import type { StoredEvent } from './store.js'
 import { buildContext } from './context.js'
-import { resolveProvider, resolveModelId, type Provider } from './provider.js'
+import { resolveProvider, resolveModelId, providerSupportsVision, type Provider } from './provider.js'
 import { tracingEnabled } from './tracing.js'
 import type { SubagentDriverInput } from './subagent.js'
 
@@ -128,6 +128,8 @@ async function streamTurn(
 export function createModelDriver(opts: {
   model: string
   task: string | null
+  /** An operator-attached image on the initial task (R14); projected only when the resolved model has vision. */
+  taskImage?: ImageAttachment | null
   /** Restrict the declared toolset (e.g. READ_ONLY_TOOLS for unattended evals). */
   tools?: readonly string[]
   dynamicTools?: readonly DynamicToolDefinition[]
@@ -135,6 +137,10 @@ export function createModelDriver(opts: {
   const provider = resolveProvider(process.env)
   const modelId = resolveModelId(provider, opts.model, process.env)
   const llm = selectModel(provider, modelId)
+  // Feature-detect vision once per driver: project the attached image as an image
+  // content part only on a vision-capable model; otherwise buildContext drops it
+  // and notes the omission (R14 graceful degradation).
+  const vision = providerSupportsVision(provider, modelId)
   const tools =
     opts.tools || (opts.dynamicTools && opts.dynamicTools.length > 0)
       ? createToolSet(opts.tools, opts.dynamicTools ?? [])
@@ -142,7 +148,7 @@ export function createModelDriver(opts: {
 
   return {
     next(events: StoredEvent[], _cursor: number, hooks: TurnHooks): Promise<TurnResult> {
-      const messages = buildContext(opts.task, events) as CoreMessage[]
+      const messages = buildContext(opts.task, events, { taskImage: opts.taskImage, vision }) as CoreMessage[]
       return streamTurn(llm, SYSTEM_PROMPT, messages, tools, 'agent.turn', events, hooks)
     },
   }

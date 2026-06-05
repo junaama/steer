@@ -37,6 +37,9 @@ export function createSessionsCollection(deps: Deps) {
           model: row.model,
           environment: row.environment ?? undefined,
           workdir: row.workdir ?? undefined,
+          // Forward the optionally-attached task image (R14) to the write boundary,
+          // which validates the image/* MIME rule + size cap before persisting it.
+          image: row.taskImage ?? undefined,
         })
         return { txid: Number(txid) }
       },

@@ -55,6 +55,17 @@ export type EventType = (typeof EVENT_TYPES)[number]
 export const CONTROL_TYPES = ['interrupt', 'approve', 'reject', 'override'] as const
 export type ControlType = (typeof CONTROL_TYPES)[number]
 
+/**
+ * An operator-attached image (R14, vision input). `mediaType` is an `image/*`
+ * MIME type and `dataBase64` is the raw image bytes base64-encoded (NOT a data
+ * URL — the agent assembles the data URL when projecting it for vision-capable
+ * providers). Bounded by the server write boundary via `imageAttachmentSchema`.
+ */
+export interface ImageAttachment {
+  mediaType: string
+  dataBase64: string
+}
+
 /** Per-tool-call lifecycle status (a projection over the event log). */
 export const TOOL_STATUSES = [
   'proposed',
@@ -89,6 +100,14 @@ export const sessions = pgTable(
     // from. The owning daemon runs the session here, *within* its root (the
     // sandbox boundary). Null = run at the daemon's root, as before.
     workdir: text('workdir'),
+    // An optional image (screenshot, error, design mock) the operator attached to
+    // the initial task (R14, vision input). Stored as a bounded base64 payload —
+    // `{ mediaType, dataBase64 }` — because there is no object store and Electric
+    // syncs the row out to the daemon (no websockets). The server write boundary
+    // enforces the size cap (see zod `imageAttachmentSchema`); the agent projects
+    // it as an image content part for vision-capable providers and drops it
+    // gracefully otherwise. Null = no image, leaving existing flows unchanged.
+    taskImage: jsonb('task_image').$type<ImageAttachment>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -4,7 +4,7 @@ import type { AgentStore } from './store.js'
 import type { SessionIntent } from './intake.js'
 import type { Db } from './db.js'
 
-const intent = (id: string): SessionIntent => ({ id, model: 'sonnet', task: null, workdir: null })
+const intent = (id: string): SessionIntent => ({ id, model: 'sonnet', task: null, workdir: null, taskImage: null })
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 const noDb = {} as Db // unused — the store is injected
 

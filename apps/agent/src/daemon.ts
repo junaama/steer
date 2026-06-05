@@ -58,7 +58,7 @@ export function createRunner(
     const dynamicTools = buildMcpTools(connections)
     const dynamicToolDefinitions = buildMcpToolDefinitions(connections)
     const sessionTools = { ...tools, ...dynamicTools }
-    const driver = createModelDriver({ model: intent.model, task: intent.task, dynamicTools: dynamicToolDefinitions })
+    const driver = createModelDriver({ model: intent.model, task: intent.task, taskImage: intent.taskImage, dynamicTools: dynamicToolDefinitions })
     const subagentDriver = (input: SubagentDriverInput) =>
       createSubagentDriver({ ...input, model: intent.model, dynamicTools: dynamicToolDefinitions })
     await runSession(s, driver, intent.id, { workspaceRoot, root, tools: sessionTools, maxSteps, subagentDriver })

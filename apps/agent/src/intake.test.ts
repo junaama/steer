@@ -18,7 +18,7 @@ describe('runnableFromMessages', () => {
       [change('insert', { id: 's1', last_status: 'starting', model: 'opus', task: 'do the thing', workdir: '/dev/projectA' })],
       null,
     )
-    expect(out).toEqual([{ id: 's1', model: 'opus', task: 'do the thing', workdir: '/dev/projectA' }])
+    expect(out).toEqual([{ id: 's1', model: 'opus', task: 'do the thing', workdir: '/dev/projectA', taskImage: null }])
   })
 
   it('includes a running session (crash-only resume from the reconnect snapshot)', () => {
@@ -26,7 +26,7 @@ describe('runnableFromMessages', () => {
       [change('update', { id: 's2', last_status: 'running', model: 'sonnet', task: null })],
       null,
     )
-    expect(out).toEqual([{ id: 's2', model: 'sonnet', task: null, workdir: null }])
+    expect(out).toEqual([{ id: 's2', model: 'sonnet', task: null, workdir: null, taskImage: null }])
   })
 
   it('includes an awaiting-approval session (resume a run that crashed at the gate)', () => {
@@ -34,13 +34,44 @@ describe('runnableFromMessages', () => {
       [change('update', { id: 's-gate', last_status: 'awaiting-approval', model: 'sonnet', task: null })],
       null,
     )
-    expect(out).toEqual([{ id: 's-gate', model: 'sonnet', task: null, workdir: null }])
+    expect(out).toEqual([{ id: 's-gate', model: 'sonnet', task: null, workdir: null, taskImage: null }])
   })
 
   it('defaults model to sonnet and task to null when absent or non-string', () => {
     expect(runnableFromMessages([change('insert', { id: 's3', last_status: 'starting' })], null)).toEqual([
-      { id: 's3', model: 'sonnet', task: null, workdir: null },
+      { id: 's3', model: 'sonnet', task: null, workdir: null, taskImage: null },
     ])
+  })
+
+  it('parses a stringified task_image attachment from the shape row (R14)', () => {
+    // Electric delivers jsonb columns as STRINGIFIED JSON in the raw shape.
+    const image = { mediaType: 'image/png', dataBase64: 'iVBORw0KGgo' }
+    const out = runnableFromMessages(
+      [change('insert', { id: 's-img', last_status: 'starting', task: 'see this', task_image: JSON.stringify(image) })],
+      null,
+    )
+    expect(out[0]!.taskImage).toEqual(image)
+  })
+
+  it('parses an already-parsed object task_image (defensive: non-stringified shape value)', () => {
+    const image = { mediaType: 'image/jpeg', dataBase64: 'AAAA' }
+    const out = runnableFromMessages(
+      [change('insert', { id: 's-obj', last_status: 'starting', task_image: image })],
+      null,
+    )
+    expect(out[0]!.taskImage).toEqual(image)
+  })
+
+  it('degrades a malformed/over-cap/non-image task_image to null (never a broken image part)', () => {
+    const malformed = [
+      change('insert', { id: 'bad-json', last_status: 'starting', task_image: '{not json' }),
+      change('insert', { id: 'wrong-shape', last_status: 'starting', task_image: JSON.stringify({ foo: 'bar' }) }),
+      change('insert', { id: 'not-image', last_status: 'starting', task_image: JSON.stringify({ mediaType: 'text/plain', dataBase64: 'AAAA' }) }),
+      change('insert', { id: 'empty-str', last_status: 'starting', task_image: '' }),
+      change('insert', { id: 'null-img', last_status: 'starting', task_image: null }),
+    ]
+    const out = runnableFromMessages(malformed, null)
+    expect(out.map((s) => s.taskImage)).toEqual([null, null, null, null, null])
   })
 
   it('excludes terminal/idle statuses and rows with no status', () => {
@@ -127,7 +158,7 @@ describe('subscribeRunnable', () => {
       change('insert', { id: 's1', last_status: 'starting', model: 'opus', task: 't' }),
       change('insert', { id: 'x', last_status: 'completed' }),
     ])
-    expect(seen).toEqual([{ id: 's1', model: 'opus', task: 't', workdir: null }])
+    expect(seen).toEqual([{ id: 's1', model: 'opus', task: 't', workdir: null, taskImage: null }])
   })
 
   it('passes its environment to the projection so only matching rows are routed', () => {

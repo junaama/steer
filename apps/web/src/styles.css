@@ -504,6 +504,32 @@ textarea {
   border-color: var(--accent);
 }
 
+/* attached-image composer (R14 vision input) */
+.image-input {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+}
+.image-error {
+  margin-top: 6px;
+  color: var(--danger, #e5484d);
+  font-size: 12px;
+}
+.image-preview {
+  margin-top: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.image-preview img {
+  max-width: 180px;
+  max-height: 140px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  object-fit: contain;
+}
+
 /* placeholder / login gate */
 .placeholder {
   height: 100%;

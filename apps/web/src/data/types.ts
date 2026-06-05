@@ -1,4 +1,4 @@
-import type { EventType, SessionStatus } from '@steer/schema'
+import type { EventType, SessionStatus, ImageAttachment } from '@steer/schema'
 
 export interface SessionRow {
   id: string
@@ -11,6 +11,13 @@ export interface SessionRow {
   environment: string | null
   /** The working directory hint for the session; null when not specified. */
   workdir: string | null
+  /**
+   * An optional image attached to the initial task (R14). Write-only from the web
+   * side: it rides the optimistic insert so the collection's onInsert can forward
+   * it to the write boundary; the authoritative synced row does not surface it for
+   * rendering (the daemon reads `task_image` from its own shape). null = none.
+   */
+  taskImage?: ImageAttachment | null
   createdAt: string
   updatedAt: string
 }
