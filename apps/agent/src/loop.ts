@@ -6,6 +6,9 @@ import type { ToolFn } from './tools/index.js'
 import type { SubagentDriverFactory } from './subagent.js'
 import { applyEdits, type Edit } from './tools/edit.js'
 import { resolveTool } from './intercept.js'
+import { decideTurn, type ToolCall, type TurnResult } from './decide.js'
+
+export type { ToolCall, TurnResult } from './decide.js'
 
 async function readBefore(root: string, path: string): Promise<string> {
   try {
@@ -51,40 +54,146 @@ async function fileMutationPreview(root: string, name: string, args: Record<stri
   return undefined
 }
 
-/** One scripted step the model driver yields. Mirrors the real LLM's turn shapes. */
-export type Step =
-  | { t: 'thinking'; text: string }
-  | { t: 'say'; text: string }
-  | { t: 'tool'; toolCallId: string; name: string; args: Record<string, unknown> }
-  | { t: 'complete' }
-
-export interface ModelDriver {
-  /** Produce the next step given the persisted events and the completed-step cursor. */
-  next(events: StoredEvent[], cursor: number): Promise<Step>
+/**
+ * Callbacks the loop hands the driver so streamed reasoning/text reach the loop
+ * as they arrive. The driver invokes these with raw provider chunks; the loop
+ * buffers them and flushes coarse `thinking_delta`/`message_delta` rows.
+ */
+export interface TurnHooks {
+  /** Invoked with each chunk of the assistant's streamed reply text. */
+  onTextDelta?: (chunk: string) => void
+  /** Invoked with each chunk of the assistant's streamed reasoning. */
+  onReasoningDelta?: (chunk: string) => void
 }
 
-/** Deterministic driver for tests — advances purely by the cursor derived from the log. */
-export class ScriptedModel implements ModelDriver {
+/**
+ * The streaming model driver contract. One `next` call runs ONE streamed
+ * assistant turn: it invokes the hooks with reasoning/text chunks as they arrive
+ * and resolves to the turn's full outcome — coalesced text, coalesced reasoning,
+ * and the whole batch of tool calls for the loop to execute through the gate.
+ */
+export interface ModelDriver {
+  next(events: StoredEvent[], cursor: number, hooks: TurnHooks): Promise<TurnResult>
+}
+
+/**
+ * A scripted turn for the fake streaming driver. `textDeltas`/`reasoningDeltas`
+ * are streamed through the hooks in order; their concatenation is the turn's
+ * coalesced text/reasoning unless `text`/`reasoning` override it. `toolCalls`
+ * is the batch the loop then executes. A turn with no tool calls ends the run.
+ */
+export interface ScriptedTurn {
+  textDeltas?: string[]
+  reasoningDeltas?: string[]
+  text?: string
+  reasoning?: string
+  toolCalls?: ToolCall[]
+}
+
+/**
+ * The number of terminal events a scripted turn commits — reasoning (1),
+ * message (1), plus one per tool call. The fake driver maps the terminal-count
+ * cursor onto a turn by consuming these budgets, so it stays a pure function of
+ * the log (crash-safe — no in-memory turn counter that a restart would lose).
+ */
+function turnTerminalCost(turn: ScriptedTurn): number {
+  const reasoning = turn.reasoning ?? (turn.reasoningDeltas ?? []).join('')
+  const text = turn.text ?? (turn.textDeltas ?? []).join('')
+  return (reasoning.trim().length > 0 ? 1 : 0) + (text.trim().length > 0 ? 1 : 0) + (turn.toolCalls ?? []).length
+}
+
+/**
+ * Deterministic streaming driver for tests — the streaming successor to the old
+ * single-step `ScriptedModel`. It resolves which turn to emit purely from the
+ * cursor (terminal count) by walking the scripted turns' terminal budgets, streams
+ * that turn's deltas through the hooks, and returns its coalesced text/reasoning +
+ * tool-call batch. Deriving the turn from the cursor (not an in-memory counter)
+ * keeps crash-resume honest: a mid-run restart recomputes the cursor from the log
+ * and resumes on the same turn. Past the script it returns an empty no-tool turn,
+ * which ends the run.
+ */
+export class FakeStreamingModel implements ModelDriver {
   constructor(
-    private readonly script: Step[],
+    private readonly script: ScriptedTurn[],
     private readonly opts: { failAtCursor?: number } = {},
   ) {}
 
-  async next(_events: StoredEvent[], cursor: number): Promise<Step> {
+  /** Map the terminal-count cursor to the scripted turn whose budget it falls in. */
+  private turnAt(cursor: number): ScriptedTurn {
+    let consumed = 0
+    for (const turn of this.script) {
+      const cost = turnTerminalCost(turn)
+      if (cursor < consumed + Math.max(cost, 1)) return turn
+      consumed += cost
+    }
+    return {}
+  }
+
+  async next(_events: StoredEvent[], cursor: number, hooks: TurnHooks): Promise<TurnResult> {
     if (this.opts.failAtCursor !== undefined && cursor === this.opts.failAtCursor) {
       throw new Error('simulated crash')
     }
-    return this.script[cursor] ?? { t: 'complete' }
+    const turn = this.turnAt(cursor)
+    const reasoningDeltas = turn.reasoningDeltas ?? []
+    const textDeltas = turn.textDeltas ?? []
+    for (const chunk of reasoningDeltas) hooks.onReasoningDelta?.(chunk)
+    for (const chunk of textDeltas) hooks.onTextDelta?.(chunk)
+    return {
+      reasoning: turn.reasoning ?? reasoningDeltas.join(''),
+      text: turn.text ?? textDeltas.join(''),
+      toolCalls: turn.toolCalls ?? [],
+    }
   }
 }
 
 const TERMINAL_TYPES = new Set(['thinking', 'message', 'tool_result', 'tool_cancelled', 'tool_substituted'])
 const DEFAULT_MAX_STEPS = 80
 
+// Coarse delta flush: buffer streamed chunks and emit a `*_delta` row only on a
+// natural boundary (newline or sentence-ender) or once the buffer reaches this
+// many characters — never one row per token. Bounds event-log growth while
+// keeping the live transcript smooth (the chunk-granularity decision the plan
+// deferred). The remainder coalesces into the terminal event on turn finish.
+const DELTA_FLUSH_CHARS = 80
+const BOUNDARY = /[\n.!?]/
+
 /**
- * The completed-step count is derived from the event log: each step ends in
- * exactly one terminal event. On restart, recomputing this resumes from the last
- * committed step without re-running committed work (crash-only resume).
+ * Buffers streamed chunks and yields coarse flushes on a boundary or once the
+ * buffer crosses DELTA_FLUSH_CHARS. `take` empties the buffer (turn finish needs
+ * what's left, but only the terminal event carries it — see runSession). Pure
+ * string folding, no I/O, so it survives a daemon restart trivially (the buffer
+ * is rebuilt from nothing each turn; the durable text lives in the terminal row).
+ */
+function makeDeltaBuffer(): {
+  push: (chunk: string) => string | null
+  drain: () => string
+} {
+  let buffer = ''
+  return {
+    push(chunk) {
+      buffer += chunk
+      if (buffer.length >= DELTA_FLUSH_CHARS || BOUNDARY.test(chunk)) {
+        const flushed = buffer
+        buffer = ''
+        return flushed
+      }
+      return null
+    },
+    drain() {
+      const remaining = buffer
+      buffer = ''
+      return remaining
+    },
+  }
+}
+
+/**
+ * The completed-step count is derived from the event log: each turn ends in
+ * terminal events (a `thinking`/`message` and/or one terminal per tool call).
+ * Streamed deltas are NON-terminal, so they never advance the cursor — on restart,
+ * recomputing this resumes from the last committed terminal without re-running
+ * committed work (crash-only resume). Counting terminals (not turns) keeps the
+ * safety ceiling honest: a turn that fires many tools costs many steps.
  */
 export function completedSteps(events: StoredEvent[]): number {
   return events.filter((e) => TERMINAL_TYPES.has(e.type)).length
@@ -239,10 +348,17 @@ export interface RunOptions {
   subagentDriver?: SubagentDriverFactory
 }
 
+/** Outcome of handling one tool call in a turn's batch — directs the loop. */
+type ToolOutcome = 'continue' | 'interrupted' | 'no-progress'
+
 /**
  * Run a session to completion (or until interrupted). The agent keeps no private
  * state — everything is read from / appended to the synced event log, so a crash
- * mid-run resumes from the log on the next call.
+ * mid-run resumes from the log on the next call. A turn streams reasoning/text as
+ * coarse delta rows, coalesces them into terminal events, then executes the whole
+ * tool-call batch through the approval gate. The run ends when a turn proposes no
+ * tools (it has answered), or is force-stopped by the safety ceiling / no-progress
+ * guard.
  */
 export async function runSession(
   store: AgentStore,
@@ -255,17 +371,9 @@ export async function runSession(
   const allowlist = new Set<string>()
 
   for (;;) {
-    // Operator interrupt halts at the step boundary (control-plane-via-data-plane).
-    const pending = await store.listUnconsumedControls(sessionId)
-    const interrupt = pending.find((c) => c.type === 'interrupt')
-    if (interrupt) {
-      await store.consumeControl(interrupt.id)
-      const events = await store.listEvents(sessionId)
-      const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
-      await store.appendEvent(sessionId, 'interrupted', { atSeq })
-      await store.setStatus(sessionId, 'interrupted')
-      return
-    }
+    // Operator interrupt halts at the turn boundary (control-plane-via-data-plane).
+    const interrupted = await checkInterrupt(store, sessionId)
+    if (interrupted) return
 
     const events = await store.listEvents(sessionId)
     const visibleEvents = parentEvents(events)
@@ -279,115 +387,193 @@ export async function runSession(
       await store.setStatus(sessionId, 'error')
       return
     }
-    const step = await driver.next(visibleEvents, cursor)
 
-    if (step.t === 'complete') {
+    // Stream one assistant turn: deltas flush as coarse rows; the buffers'
+    // remainders coalesce into terminal thinking/message events below. Delta
+    // appends are SERIALIZED onto one tail promise — each assigns seq from
+    // max(seq)+1, so two concurrent appends would collide on the same seq.
+    // Chaining keeps them ordered and atomic while the driver streams.
+    const textBuf = makeDeltaBuffer()
+    const reasoningBuf = makeDeltaBuffer()
+    let deltaTail: Promise<unknown> = Promise.resolve()
+    const flushDelta = (type: 'thinking_delta' | 'message_delta', chunk: string | null): void => {
+      if (chunk === null || chunk.length === 0) return
+      deltaTail = deltaTail.then(() => store.appendEvent(sessionId, type, { text: chunk }))
+    }
+    const result = await driver.next(visibleEvents, cursor, {
+      onReasoningDelta: (chunk) => flushDelta('thinking_delta', reasoningBuf.push(chunk)),
+      onTextDelta: (chunk) => flushDelta('message_delta', textBuf.push(chunk)),
+    })
+    // Drain trailing buffer contents as final deltas so every streamed character
+    // is represented as a delta row before the terminal event coalesces them.
+    flushDelta('thinking_delta', reasoningBuf.drain())
+    flushDelta('message_delta', textBuf.drain())
+    await deltaTail
+
+    // Coalesce the turn: persist reasoning + text as terminal events (reasoning
+    // is KEPT even when the turn also calls tools — origin R2), then process the
+    // tool batch. `complete` is true only when the turn proposed no tools (R5).
+    const decision = decideTurn(visibleEvents, result)
+    if (decision.thinking !== undefined) await store.appendEvent(sessionId, 'thinking', { text: decision.thinking })
+    if (decision.message !== undefined) await store.appendEvent(sessionId, 'message', { text: decision.message })
+
+    if (decision.complete) {
       // Link the plan artifact to the loop's progress: on a clean finish, flip any
       // still-open todos to done so the synced plan can't read as unfinished while
       // the session shows Complete. Append-only — every plan projection follows.
-      const finishedPlan = planMarkedAllDone(latestPlan(events))
+      const finishedPlan = planMarkedAllDone(latestPlan(await store.listEvents(sessionId)))
       if (finishedPlan) await store.appendEvent(sessionId, 'plan', { items: finishedPlan })
       await store.setStatus(sessionId, 'completed')
       return
     }
-    if (step.t === 'thinking') {
-      await store.appendEvent(sessionId, 'thinking', { text: step.text })
-      continue
-    }
-    if (step.t === 'say') {
-      await store.appendEvent(sessionId, 'message', { text: step.text })
-      continue
-    }
 
-    // No-progress guard: a model re-proposing the same call after it returned
-    // the same result REPEAT_LIMIT times is stuck — stop with an explanation
-    // instead of spinning to the step cap.
-    if (isNoProgressRepeat(visibleEvents, step)) {
-      await store.appendEvent(sessionId, 'message', {
-        text: `Stopped: \`${step.name}\` repeated ${REPEAT_LIMIT}× with the same result and made no progress. The path may be outside this workspace, or the task can't be done in this environment — refine the task or steer it from the UI.`,
-      })
-      await store.setStatus(sessionId, 'error')
-      return
-    }
-
-    // URL dedup for web_fetch: if the same URL was already fetched in this
-    // session, return the cached result instead of re-fetching. This prevents
-    // the model from burning network requests and tripping the no-progress guard
-    // on duplicate fetches.
-    if (step.name === 'web_fetch') {
-      const url = (step.args as { url?: unknown }).url
-      if (typeof url === 'string') {
-        const cached = findCachedWebFetch(visibleEvents, url)
-        if (cached !== undefined) {
-          const kind = classifyTool(step.name)
-          await store.appendEvent(sessionId, 'tool_proposed', {
-            toolCallId: step.toolCallId,
-            name: step.name,
-            kind,
-            args: step.args,
-          })
-          await store.appendEvent(sessionId, 'tool_result', {
-            toolCallId: step.toolCallId,
-            name: step.name,
-            result: cached,
-          })
-          continue
-        }
+    // Execute the turn's tool-call batch sequentially through the gate. Each
+    // side-effecting call still hits the approval gate (R15); read-only calls run
+    // immediately. A no-progress repeat or an interrupt ends the run.
+    let stopped: 'interrupted' | 'no-progress' | null = null
+    for (const call of decision.toolCalls) {
+      const outcome = await handleToolCall(store, sessionId, call, options, maxSteps, allowlist)
+      if (outcome === 'interrupted') {
+        stopped = 'interrupted'
+        break
+      }
+      if (outcome === 'no-progress') {
+        stopped = 'no-progress'
+        break
       }
     }
+    if (stopped === 'interrupted') return
+    if (stopped === 'no-progress') return
+  }
+}
 
-    // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
-    const kind = classifyTool(step.name)
-    const proposed: Record<string, unknown> = {
-      toolCallId: step.toolCallId,
-      name: step.name,
-      kind,
-      args: step.args,
-    }
-    // Emit before/after for file-mutating tools so the UI can render a diff.
-    const preview = await fileMutationPreview(options.workspaceRoot, step.name, step.args)
-    if (preview) Object.assign(proposed, preview)
-    await store.appendEvent(sessionId, 'tool_proposed', proposed)
-    // A side-effecting tool blocks at the approval gate — flip the session pill to
-    // AWAITING APPROVAL while it waits so the operator sees it needs a decision
-    // (the interrupt path below owns 'interrupted', so don't reset that case).
-    const gated = kind === 'side-effecting' && !allowlist.has(step.name)
-    if (gated) await store.setStatus(sessionId, 'awaiting-approval')
-    const outcome = await resolveTool(store, sessionId, step, {
-      tools: options.tools,
-      workspaceRoot: options.workspaceRoot,
-      root: options.root,
-      pollMs: options.pollMs ?? 200,
-      allowlist,
-      signal: options.signal,
-      subagentDriver: options.subagentDriver,
-      maxSteps,
+/**
+ * Halt the run at a turn boundary if an interrupt control is pending: consume it,
+ * record an `interrupted` event at the current seq, and flip the session pill.
+ * Returns true when the run halted.
+ */
+async function checkInterrupt(store: AgentStore, sessionId: string): Promise<boolean> {
+  const pending = await store.listUnconsumedControls(sessionId)
+  const interrupt = pending.find((c) => c.type === 'interrupt')
+  if (!interrupt) return false
+  await store.consumeControl(interrupt.id)
+  const events = await store.listEvents(sessionId)
+  const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
+  await store.appendEvent(sessionId, 'interrupted', { atSeq })
+  await store.setStatus(sessionId, 'interrupted')
+  return true
+}
+
+/**
+ * Execute one tool call from a turn's batch with full interception. Re-reads the
+ * event log for each call so the no-progress guard and web_fetch cache see prior
+ * calls in the SAME turn (multi-tool turns must still be bounded). Side-effecting
+ * calls flip the pill to AWAITING APPROVAL and park at the gate; read-only calls
+ * run live. Returns how the loop should proceed.
+ */
+async function handleToolCall(
+  store: AgentStore,
+  sessionId: string,
+  call: ToolCall,
+  options: RunOptions,
+  maxSteps: number,
+  allowlist: Set<string>,
+): Promise<ToolOutcome> {
+  const visibleEvents = parentEvents(await store.listEvents(sessionId))
+
+  // No-progress guard: a model re-proposing the same call after it returned the
+  // same result REPEAT_LIMIT times is stuck — stop with an explanation instead
+  // of spinning to the step cap.
+  if (isNoProgressRepeat(visibleEvents, call)) {
+    await store.appendEvent(sessionId, 'message', {
+      text: `Stopped: \`${call.name}\` repeated ${REPEAT_LIMIT}× with the same result and made no progress. The path may be outside this workspace, or the task can't be done in this environment — refine the task or steer it from the UI.`,
     })
-    if (outcome === 'interrupted') {
-      const events = await store.listEvents(sessionId)
-      const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
-      await store.appendEvent(sessionId, 'interrupted', { atSeq })
-      await store.setStatus(sessionId, 'interrupted')
-      return
-    }
-    if (step.name === PLAN_TOOL) {
-      const afterTool = await store.listEvents(sessionId)
-      const terminal = [...afterTool].reverse().find((event) => {
-        const payload = event.payload as { toolCallId?: unknown; name?: unknown }
-        return payload.toolCallId === step.toolCallId && payload.name === PLAN_TOOL
-      })
-      if (terminal?.type === 'tool_result') {
-        try {
-          const { items } = validateToolArgs(PLAN_TOOL, step.args) as {
-            items: { text: string; status: 'pending' | 'in_progress' | 'done' }[]
-          }
-          await store.appendEvent(sessionId, 'plan', { items })
-        } catch {
-          // The tool_result already records the validation error; malformed args
-          // must not become the durable current plan.
-        }
+    await store.setStatus(sessionId, 'error')
+    return 'no-progress'
+  }
+
+  // URL dedup for web_fetch: a repeat fetch of a URL already fetched this session
+  // returns the cached result instead of burning a network request (and tripping
+  // the no-progress guard on the duplicate).
+  if (call.name === 'web_fetch') {
+    const url = (call.args as { url?: unknown }).url
+    if (typeof url === 'string') {
+      const cached = findCachedWebFetch(visibleEvents, url)
+      if (cached !== undefined) {
+        await store.appendEvent(sessionId, 'tool_proposed', {
+          toolCallId: call.toolCallId,
+          name: call.name,
+          kind: classifyTool(call.name),
+          args: call.args,
+        })
+        await store.appendEvent(sessionId, 'tool_result', {
+          toolCallId: call.toolCallId,
+          name: call.name,
+          result: cached,
+        })
+        return 'continue'
       }
     }
-    if (gated) await store.setStatus(sessionId, 'running')
+  }
+
+  // Tool step — interception: U8 approval gate, U9 override, U10 live cancel.
+  const kind = classifyTool(call.name)
+  const proposed: Record<string, unknown> = {
+    toolCallId: call.toolCallId,
+    name: call.name,
+    kind,
+    args: call.args,
+  }
+  // Emit before/after for file-mutating tools so the UI can render a diff.
+  const preview = await fileMutationPreview(options.workspaceRoot, call.name, call.args)
+  if (preview) Object.assign(proposed, preview)
+  await store.appendEvent(sessionId, 'tool_proposed', proposed)
+  // A side-effecting tool blocks at the approval gate — flip the session pill to
+  // AWAITING APPROVAL while it waits so the operator sees it needs a decision
+  // (the interrupt path owns 'interrupted', so don't reset that case).
+  const gated = kind === 'side-effecting' && !allowlist.has(call.name)
+  if (gated) await store.setStatus(sessionId, 'awaiting-approval')
+  const outcome = await resolveTool(store, sessionId, call, {
+    tools: options.tools,
+    workspaceRoot: options.workspaceRoot,
+    root: options.root,
+    pollMs: options.pollMs ?? 200,
+    allowlist,
+    signal: options.signal,
+    subagentDriver: options.subagentDriver,
+    maxSteps,
+  })
+  if (outcome === 'interrupted') {
+    const events = await store.listEvents(sessionId)
+    const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
+    await store.appendEvent(sessionId, 'interrupted', { atSeq })
+    await store.setStatus(sessionId, 'interrupted')
+    return 'interrupted'
+  }
+  if (call.name === PLAN_TOOL) await reconcilePlanFromTool(store, sessionId, call)
+  if (gated) await store.setStatus(sessionId, 'running')
+  return 'continue'
+}
+
+/**
+ * After a `todo_write` tool_result, append a `plan` event mirroring its args so
+ * every plan projection (UI panel, LLM context) follows the log. Malformed args
+ * leave the durable plan untouched — the tool_result already records the error.
+ */
+async function reconcilePlanFromTool(store: AgentStore, sessionId: string, call: ToolCall): Promise<void> {
+  const afterTool = await store.listEvents(sessionId)
+  const terminal = [...afterTool].reverse().find((event) => {
+    const payload = event.payload as { toolCallId?: unknown; name?: unknown }
+    return payload.toolCallId === call.toolCallId && payload.name === PLAN_TOOL
+  })
+  if (terminal?.type !== 'tool_result') return
+  try {
+    const { items } = validateToolArgs(PLAN_TOOL, call.args) as {
+      items: { text: string; status: 'pending' | 'in_progress' | 'done' }[]
+    }
+    await store.appendEvent(sessionId, 'plan', { items })
+  } catch {
+    // The tool_result already records the validation error; malformed args must
+    // not become the durable current plan.
   }
 }

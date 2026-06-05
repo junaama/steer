@@ -9,7 +9,18 @@ import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
-import { runSession, ScriptedModel, completedSteps, isNoProgressRepeat, findCachedWebFetch, latestPlan, planMarkedAllDone, type Step, type ModelDriver } from './loop.js'
+import {
+  runSession,
+  FakeStreamingModel,
+  completedSteps,
+  isNoProgressRepeat,
+  findCachedWebFetch,
+  latestPlan,
+  planMarkedAllDone,
+  type ScriptedTurn,
+  type ModelDriver,
+  type TurnResult,
+} from './loop.js'
 import { tools, type ToolFn } from './tools/index.js'
 
 const TEST_URL =
@@ -43,6 +54,13 @@ async function fileExists(name: string): Promise<boolean> {
   )
 }
 
+/** A no-tool turn that emits text — the simplest way to end a run with a reply. */
+const say = (text: string): ScriptedTurn => ({ text })
+/** A turn that calls one tool (and ends only via a later no-tool turn). */
+const callTool = (toolCallId: string, name: string, args: Record<string, unknown>): ScriptedTurn => ({
+  toolCalls: [{ toolCallId, name, args }],
+})
+
 beforeAll(async () => {
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
@@ -62,15 +80,13 @@ beforeEach(async () => {
 })
 
 describe('runSession', () => {
-  it('emits ordered events for a scripted run and completes', async () => {
+  it('emits ordered events for a streamed turn (reasoning + text + tool) and completes', async () => {
     const id = await newSession()
-    const script: Step[] = [
-      { t: 'thinking', text: 'locating the file' },
-      { t: 'say', text: 'reading it now' },
-      { t: 'tool', toolCallId: 'tc1', name: 'read_file', args: { path: 'a.txt' } },
-      { t: 'say', text: 'done' },
+    const script: ScriptedTurn[] = [
+      { reasoning: 'locating the file', text: 'reading it now', toolCalls: [{ toolCallId: 'tc1', name: 'read_file', args: { path: 'a.txt' } }] },
+      say('done'),
     ]
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools })
 
     const events = await store.listEvents(id)
     expect(types(events)).toEqual(['thinking', 'message', 'tool_proposed', 'tool_result', 'message'])
@@ -79,17 +95,125 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
-  it('force-stops a non-completing model at the step cap (no runaway)', async () => {
+  it('persists BOTH reasoning and a tool proposal in one turn — reasoning is not dropped (AE1, R2)', async () => {
     const id = await newSession()
-    // A model that never returns `complete` — mirrors the empty-dir loop that
-    // produced dozens of identical tool calls.
-    const looping: ModelDriver = { next: async () => ({ t: 'say', text: 'still going' }) }
-    await runSession(store, looping, id, { workspaceRoot: workspace, tools, maxSteps: 3 })
+    const script: ScriptedTurn[] = [
+      { reasoning: 'I should grep before editing', toolCalls: [{ toolCallId: 'g1', name: 'grep', args: { pattern: 'hello', path: 'a.txt' } }] },
+      say('found it'),
+    ]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
-    const messages = events.filter((e) => e.type === 'message')
-    expect(messages).toHaveLength(4) // 3 model steps + the cap notice
-    expect((messages[3]!.payload as { text: string }).text).toContain('safety limit')
+    // The turn's reasoning persists as a terminal thinking event ALONGSIDE the
+    // tool proposal — the old "tool wins, text discarded" bug is fixed.
+    expect(types(events)).toEqual(['thinking', 'tool_proposed', 'tool_result', 'message'])
+    const thinking = events.find((e) => e.type === 'thinking')!.payload as { text: string }
+    expect(thinking.text).toBe('I should grep before editing')
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('executes ALL THREE read-only tool calls in one turn (AE5, multi-tool per turn)', async () => {
+    const id = await newSession()
+    const script: ScriptedTurn[] = [
+      {
+        reasoning: 'inspect three things at once',
+        toolCalls: [
+          { toolCallId: 't1', name: 'read_file', args: { path: 'a.txt' } },
+          { toolCallId: 't2', name: 'grep', args: { pattern: 'world', path: 'a.txt' } },
+          { toolCallId: 't3', name: 'list_dir', args: { path: '.' } },
+        ],
+      },
+      say('all read'),
+    ]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(events.filter((e) => e.type === 'tool_proposed')).toHaveLength(3)
+    const results = events.filter((e) => e.type === 'tool_result')
+    expect(results).toHaveLength(3)
+    expect((results[0]!.payload as { name: string }).name).toBe('read_file')
+    expect((results[1]!.payload as { name: string }).name).toBe('grep')
+    expect((results[2]!.payload as { name: string }).name).toBe('list_dir')
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('gates a side-effecting tool inside a multi-call turn and waits for approval before its result', async () => {
+    const id = await newSession()
+    // Turn batches a read THEN a write; the write must park at the gate
+    // (awaiting-approval) and only run its tool_result after an approve control.
+    const script: ScriptedTurn[] = [
+      {
+        toolCalls: [
+          { toolCallId: 'r1', name: 'read_file', args: { path: 'a.txt' } },
+          { toolCallId: 'w1', name: 'write_file', args: { path: 'batch.txt', content: 'X' } },
+        ],
+      },
+      say('wrote it'),
+    ]
+    const p = runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    // The read runs immediately; the write parks at the gate.
+    for (let i = 0; i < 200 && (await status(id)) !== 'awaiting-approval'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-approval')
+    const mid = await store.listEvents(id)
+    // The read already produced a result; the write has only been proposed.
+    expect(mid.filter((e) => e.type === 'tool_result')).toHaveLength(1)
+    expect(await fileExists('batch.txt')).toBe(false)
+    // Approve the write → it executes and the run finishes.
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'w1' } })
+    await p
+    expect(await fileExists('batch.txt')).toBe(true)
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('streams coarse message_delta rows that coalesce to the final message text', async () => {
+    const id = await newSession()
+    // Deltas flush on boundaries / size; their concatenation equals the terminal
+    // message text. The driver streams multiple sentences so several rows flush.
+    const chunks = ['First sentence. ', 'Second sentence! ', 'And the third part is a bit longer to cross the size threshold for a flush.']
+    const script: ScriptedTurn[] = [{ textDeltas: chunks }]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools })
+
+    const events = await store.listEvents(id)
+    const deltas = events.filter((e) => e.type === 'message_delta')
+    expect(deltas.length).toBeGreaterThan(1) // coarse, but more than one row
+    const joinedDeltas = deltas.map((e) => (e.payload as { text: string }).text).join('')
+    const message = events.find((e) => e.type === 'message')!.payload as { text: string }
+    expect(joinedDeltas).toBe(chunks.join('')) // every streamed char represented
+    expect(message.text).toBe(chunks.join('').trim())
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('streams coarse thinking_delta rows that coalesce to the final thinking text', async () => {
+    const id = await newSession()
+    const chunks = ['Weighing the options.\n', 'I will read the file first.']
+    const script: ScriptedTurn[] = [{ reasoningDeltas: chunks, toolCalls: [{ toolCallId: 'r1', name: 'read_file', args: { path: 'a.txt' } }] }, say('done')]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    const deltas = events.filter((e) => e.type === 'thinking_delta')
+    const joined = deltas.map((e) => (e.payload as { text: string }).text).join('')
+    const thinking = events.find((e) => e.type === 'thinking')!.payload as { text: string }
+    expect(joined).toBe(chunks.join(''))
+    expect(thinking.text).toBe(chunks.join('').trim())
+  })
+
+  it('force-stops a non-completing model at the step cap (no runaway)', async () => {
+    const id = await newSession()
+    // A model that never finishes a turn without a tool — mirrors the empty-dir
+    // loop that produced dozens of identical tool calls.
+    let n = 0
+    const looping: ModelDriver = {
+      next: async () => ({ reasoning: '', text: '', toolCalls: [{ toolCallId: `t${n++}`, name: 'list_dir', args: { path: 'src' } }] }),
+    }
+    // Each turn commits one tool_result (one step). Different dir results so the
+    // no-progress guard never trips — only the cap stops it.
+    await runSession(store, looping, id, { workspaceRoot: workspace, tools, maxSteps: 3, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    // 3 tool results consume the budget; the cap notice is the 4th terminal message.
+    expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(3)
+    const capMsg = events.filter((e) => e.type === 'message').at(-1)!.payload as { text: string }
+    expect(capMsg.text).toContain('safety limit')
     expect(await status(id)).toBe('error')
   })
 
@@ -99,9 +223,9 @@ describe('runSession', () => {
     // back every time), each with a fresh toolCallId like a real model would.
     let n = 0
     const stuck: ModelDriver = {
-      next: async () => ({ t: 'tool', toolCallId: `tc${n++}`, name: 'read_file', args: { path: 'a.txt' } }),
+      next: async () => ({ reasoning: '', text: '', toolCalls: [{ toolCallId: `tc${n++}`, name: 'read_file', args: { path: 'a.txt' } }] }),
     }
-    await runSession(store, stuck, id, { workspaceRoot: workspace, tools, maxSteps: 80 })
+    await runSession(store, stuck, id, { workspaceRoot: workspace, tools, maxSteps: 80, pollMs: 5 })
 
     const events = await store.listEvents(id)
     expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(3) // REPEAT_LIMIT, not 80
@@ -113,15 +237,11 @@ describe('runSession', () => {
 
   it('stops a varied-but-fruitless search (grep, changing args, identical "no matches") before the cap', async () => {
     const id = await newSession()
-    // The grep thrash that walked the step cap on a real SWE-bench instance: the
-    // same search tool with a fresh non-matching pattern each step, so every
-    // (name+args) key differs but every result is the identical "— no matches".
-    // The exact-repeat rule misses this; the search-thrash rule must still stop it.
     let n = 0
     const thrash: ModelDriver = {
-      next: async () => ({ t: 'tool', toolCallId: `tc${n}`, name: 'grep', args: { pattern: `zzz${n++}`, path: 'a.txt' } }),
+      next: async () => ({ reasoning: '', text: '', toolCalls: [{ toolCallId: `tc${n}`, name: 'grep', args: { pattern: `zzz${n++}`, path: 'a.txt' } }] }),
     }
-    await runSession(store, thrash, id, { workspaceRoot: workspace, tools, maxSteps: 80 })
+    await runSession(store, thrash, id, { workspaceRoot: workspace, tools, maxSteps: 80, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const results = events.filter((e) => e.type === 'tool_result')
@@ -133,15 +253,26 @@ describe('runSession', () => {
     expect(await status(id)).toBe('error')
   })
 
+  it('stops a no-progress repeat that appears later within a multi-tool batch', async () => {
+    const id = await newSession()
+    // One turn batches four identical reads; the fourth would extend the streak,
+    // so the no-progress guard stops mid-batch (only three results persist).
+    const repeat = (i: number) => ({ toolCallId: `b${i}`, name: 'read_file', args: { path: 'a.txt' } })
+    const script: ScriptedTurn[] = [{ toolCalls: [repeat(0), repeat(1), repeat(2), repeat(3)] }]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(3)
+    expect(await status(id)).toBe('error')
+  })
+
   it('halts on an interrupt control row and records it (control-plane-via-data-plane)', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'interrupt', payload: {} })
-    const script: Step[] = [
-      { t: 'thinking', text: 'a' },
-      { t: 'say', text: 'b' },
-      { t: 'tool', toolCallId: 'tc1', name: 'list_dir', args: { path: '.' } },
+    const script: ScriptedTurn[] = [
+      { reasoning: 'a', text: 'b', toolCalls: [{ toolCallId: 'tc1', name: 'list_dir', args: { path: '.' } }] },
     ]
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools })
 
     const events = await store.listEvents(id)
     expect(types(events)).toEqual(['interrupted'])
@@ -150,27 +281,25 @@ describe('runSession', () => {
 
   it('resumes from the event log after a crash without re-running committed steps', async () => {
     const id = await newSession()
-    const script: Step[] = [
-      { t: 'thinking', text: 'step0' },
-      { t: 'say', text: 'step1' },
-      { t: 'tool', toolCallId: 'tc1', name: 'list_dir', args: { path: '.' } },
-      { t: 'say', text: 'step3' },
+    const script: ScriptedTurn[] = [
+      { reasoning: 'step0', toolCalls: [{ toolCallId: 'tc1', name: 'list_dir', args: { path: '.' } }] },
+      say('step-final'),
     ]
-    // Crash before step index 2 (the tool) runs.
+    // Turn 1 commits thinking(1) + tool_result(1) = cursor 2. Crash when the
+    // driver is next asked at cursor 2 (i.e. after turn 1 fully committed).
     await expect(
-      runSession(store, new ScriptedModel(script, { failAtCursor: 2 }), id, { workspaceRoot: workspace, tools }),
+      runSession(store, new FakeStreamingModel(script, { failAtCursor: 2 }), id, { workspaceRoot: workspace, tools, pollMs: 5 }),
     ).rejects.toThrow(/crash/)
 
     const afterCrash = await store.listEvents(id)
     expect(completedSteps(afterCrash)).toBe(2)
-    expect(types(afterCrash)).toEqual(['thinking', 'message'])
+    expect(types(afterCrash)).toEqual(['thinking', 'tool_proposed', 'tool_result'])
 
-    // Resume with a healthy driver — continues from cursor 2.
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools })
+    // Resume with a healthy driver — recomputes cursor 2 from the log and finishes.
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const final = await store.listEvents(id)
-    expect(types(final)).toEqual(['thinking', 'message', 'tool_proposed', 'tool_result', 'message'])
-    // exactly one terminal per step — committed steps were not re-run
+    expect(types(final)).toEqual(['thinking', 'tool_proposed', 'tool_result', 'message'])
     expect(final.filter((e) => e.type === 'thinking')).toHaveLength(1)
     expect(final.filter((e) => e.type === 'tool_result')).toHaveLength(1)
     expect(await status(id)).toBe('completed')
@@ -178,9 +307,6 @@ describe('runSession', () => {
 
   it('treats streamed deltas plus one terminal message as a single completed step (DB-backed cursor)', async () => {
     const id = await newSession()
-    // Persist a streamed turn through the real store, then assert the step cursor
-    // over the fetched event log (real DB rows, not inferred): the deltas are
-    // non-terminal, so the whole turn is exactly one completed step.
     await store.appendEvent(id, 'thinking_delta', { text: 'plan' })
     await store.appendEvent(id, 'message_delta', { text: 'Hel' })
     await store.appendEvent(id, 'message_delta', { text: 'lo' })
@@ -193,8 +319,8 @@ describe('runSession', () => {
 
   it('captures tool errors as a tool_result instead of throwing', async () => {
     const id = await newSession()
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'read_file', args: { path: 'missing.txt' } }]
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools })
+    const script: ScriptedTurn[] = [callTool('tc1', 'read_file', { path: 'missing.txt' }), say('handled')]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
@@ -205,8 +331,8 @@ describe('runSession', () => {
   it('emits a write_file proposal with before/after and writes on approval', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'write_file', args: { path: 'new.txt', content: 'l1\nl2' } }]
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    const script: ScriptedTurn[] = [callTool('tc1', 'write_file', { path: 'new.txt', content: 'l1\nl2' }), say('wrote')]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
     expect(proposed.before).toBe('') // new file
@@ -218,16 +344,12 @@ describe('runSession', () => {
     const id = await newSession()
     await writeFile(join(workspace, 'edit-proposal.txt'), 'alpha\nbeta\ngamma\n')
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [
-      {
-        t: 'tool',
-        toolCallId: 'tc1',
-        name: 'edit_file',
-        args: { path: 'edit-proposal.txt', old_string: 'beta', new_string: 'delta' },
-      },
+    const script: ScriptedTurn[] = [
+      callTool('tc1', 'edit_file', { path: 'edit-proposal.txt', old_string: 'beta', new_string: 'delta' }),
+      say('edited'),
     ]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -240,22 +362,18 @@ describe('runSession', () => {
     const id = await newSession()
     await writeFile(join(workspace, 'multi-proposal.txt'), 'one\ntwo\nthree\n')
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [
-      {
-        t: 'tool',
-        toolCallId: 'tc1',
-        name: 'multi_edit',
-        args: {
-          path: 'multi-proposal.txt',
-          edits: [
-            { old_string: 'one', new_string: 'two' },
-            { old_string: 'two\ntwo', new_string: 'double' },
-          ],
-        },
-      },
+    const script: ScriptedTurn[] = [
+      callTool('tc1', 'multi_edit', {
+        path: 'multi-proposal.txt',
+        edits: [
+          { old_string: 'one', new_string: 'two' },
+          { old_string: 'two\ntwo', new_string: 'double' },
+        ],
+      }),
+      say('edited'),
     ]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -265,8 +383,8 @@ describe('runSession', () => {
 
   it('emits a grep proposal without before/after', async () => {
     const id = await newSession()
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'grep', args: { pattern: 'hello', path: 'a.txt' } }]
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    const script: ScriptedTurn[] = [callTool('tc1', 'grep', { pattern: 'hello', path: 'a.txt' }), say('done')]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -277,9 +395,9 @@ describe('runSession', () => {
   it('emits no before/after when an edit_file proposal lacks editable strings', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'edit_file', args: { path: 'a.txt' } }]
+    const script: ScriptedTurn[] = [callTool('tc1', 'edit_file', { path: 'a.txt' })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -290,9 +408,9 @@ describe('runSession', () => {
   it('emits no before/after for a malformed multi_edit proposal', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'multi_edit', args: { path: 'a.txt', edits: [null] } }]
+    const script: ScriptedTurn[] = [callTool('tc1', 'multi_edit', { path: 'a.txt', edits: [null] })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -303,16 +421,11 @@ describe('runSession', () => {
   it('emits no before/after when edit preview cannot match uniquely', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'reject', payload: { toolCallId: 'tc1' } })
-    const script: Step[] = [
-      {
-        t: 'tool',
-        toolCallId: 'tc1',
-        name: 'edit_file',
-        args: { path: 'a.txt', old_string: 'missing', new_string: 'replacement' },
-      },
+    const script: ScriptedTurn[] = [
+      callTool('tc1', 'edit_file', { path: 'a.txt', old_string: 'missing', new_string: 'replacement' }),
     ]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     const proposed = events.find((e) => e.type === 'tool_proposed')!.payload as { before?: string; after?: string }
@@ -322,17 +435,11 @@ describe('runSession', () => {
 
   it('flips to awaiting-approval at a side-effecting gate, then back to running, then completed', async () => {
     const id = await newSession()
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'tc1', name: 'write_file', args: { path: 'gated.txt', content: 'X' } },
-      { t: 'say', text: 'wrote it' },
-    ]
-    const p = runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
-    // Poll until the run parks at the gate with the AWAITING APPROVAL pill.
+    const script: ScriptedTurn[] = [callTool('tc1', 'write_file', { path: 'gated.txt', content: 'X' }), say('wrote it')]
+    const p = runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
     for (let i = 0; i < 100 && (await status(id)) !== 'awaiting-approval'; i++) await sleep(5)
     expect(await status(id)).toBe('awaiting-approval')
-    // The write must not have executed while it waits.
     expect(await fileExists('gated.txt')).toBe(false)
-    // Approve → the loop resumes (running) and finishes (completed).
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'tc1' } })
     await p
     expect(await status(id)).toBe('completed')
@@ -349,8 +456,8 @@ describe('runSession', () => {
         return store.setStatus(sid, st)
       },
     }
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'read_file', args: { path: 'a.txt' } }]
-    await runSession(observingStore, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    const script: ScriptedTurn[] = [callTool('tc1', 'read_file', { path: 'a.txt' }), say('done')]
+    await runSession(observingStore, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
     expect(seen).not.toContain('awaiting-approval')
     expect(await status(id)).toBe('completed')
   })
@@ -362,28 +469,24 @@ describe('runSession', () => {
       { text: 'wire agent loop', status: 'in_progress' },
       { text: 'render todo panel', status: 'done' },
     ]
-    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+    const script: ScriptedTurn[] = [callTool('todo1', 'todo_write', { items })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
-    // todo_write records a tool_result + a plan event mirroring its args; the run
-    // then completes, which appends a reconciling plan (every item marked done).
     expect(types(events)).toEqual(['tool_proposed', 'tool_result', 'plan', 'plan'])
     const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
     expect(result.result).toBe('Updated plan · 3 items')
     const plan = events.find((e) => e.type === 'plan')!.payload as { items: typeof items }
-    expect(plan.items).toEqual(items) // the first plan mirrors the tool args verbatim
+    expect(plan.items).toEqual(items)
     expect(await status(id)).toBe('completed')
   })
 
   it('does not append a plan event when todo_write args are malformed', async () => {
     const id = await newSession()
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items: [{ text: 'bad', status: 'blocked' }] } },
-    ]
+    const script: ScriptedTurn[] = [callTool('todo1', 'todo_write', { items: [{ text: 'bad', status: 'blocked' }] })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     expect(types(events)).toEqual(['tool_proposed', 'tool_result'])
@@ -393,18 +496,16 @@ describe('runSession', () => {
 
   it('marks every open plan item done when the run completes, so the plan matches Complete', async () => {
     const id = await newSession()
-    // A plan the model never finishes flipping to done — the drift the ticket describes.
     const items = [
       { text: 'write schema tests', status: 'done' },
       { text: 'wire agent loop', status: 'in_progress' },
       { text: 'render todo panel', status: 'pending' },
     ]
-    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+    const script: ScriptedTurn[] = [callTool('todo1', 'todo_write', { items })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
-    // The original plan, then a reconciling plan appended on completion.
     const planEvents = events.filter((e) => e.type === 'plan')
     expect(planEvents).toHaveLength(2)
     const finalPlan = planEvents.at(-1)!.payload as { items: { text: string; status: string }[] }
@@ -422,9 +523,9 @@ describe('runSession', () => {
       { text: 'one', status: 'done' },
       { text: 'two', status: 'done' },
     ]
-    const script: Step[] = [{ t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }]
+    const script: ScriptedTurn[] = [callTool('todo1', 'todo_write', { items })]
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     expect(events.filter((e) => e.type === 'plan')).toHaveLength(1)
@@ -433,15 +534,14 @@ describe('runSession', () => {
 
   it('leaves an unfinished plan untouched when the run errors out instead of completing', async () => {
     const id = await newSession()
-    // Establish a plan, then keep proposing the same no-op call so the loop stops
-    // on the no-progress guard (status 'error') rather than reaching 'complete'.
     const items = [{ text: 'keep going', status: 'in_progress' }]
     let n = 0
     const stuck: ModelDriver = {
       next: async () => {
-        if (n++ === 0) return { t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items } }
-        // Re-propose the same read until the no-progress guard force-stops with 'error'.
-        return { t: 'tool', toolCallId: `r${n}`, name: 'read_file', args: { path: 'a.txt' } }
+        if (n++ === 0) {
+          return { reasoning: '', text: '', toolCalls: [{ toolCallId: 'todo1', name: 'todo_write', args: { items } }] }
+        }
+        return { reasoning: '', text: '', toolCalls: [{ toolCallId: `r${n}`, name: 'read_file', args: { path: 'a.txt' } }] }
       },
     }
 
@@ -470,14 +570,14 @@ describe('runSession', () => {
         return store.setStatus(sid, st)
       },
     }
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
-      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
-      { t: 'say', text: 'green' },
+    const script: ScriptedTurn[] = [
+      callTool('r1', 'run_command', { command: 'pnpm test' }),
+      callTool('r2', 'run_command', { command: 'pnpm test' }),
+      say('green'),
     ]
     const fakeRun: ToolFn = async (args) => `ran ${(args.command as string) ?? ''}`
 
-    await runSession(observingStore, new ScriptedModel(script), id, {
+    await runSession(observingStore, new FakeStreamingModel(script), id, {
       workspaceRoot: workspace,
       tools: { ...tools, run_command: fakeRun },
       pollMs: 5,
@@ -505,12 +605,12 @@ describe('runSession', () => {
         return store.setStatus(sid, st)
       },
     }
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
-      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
-      { t: 'say', text: 'green' },
+    const script: ScriptedTurn[] = [
+      callTool('r1', 'run_command', { command: 'pnpm test' }),
+      callTool('r2', 'run_command', { command: 'pnpm test' }),
+      say('green'),
     ]
-    const p = runSession(observingStore, new ScriptedModel(script), id, {
+    const p = runSession(observingStore, new FakeStreamingModel(script), id, {
       workspaceRoot: workspace,
       tools: { ...tools, run_command: async () => 'ran' },
       pollMs: 5,
@@ -538,29 +638,21 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
-  it('runs an edit-test-fix-test verify loop and records the expected event order', async () => {
+  it('runs a multi-turn edit→failing-run→edit→passing-run→message sequence and ends completed (AE3, R5)', async () => {
     const id = await newSession()
     await db.insert(controls).values([
       { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'e1' } },
       { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'r1', alwaysAllow: true } },
       { id: randomUUID(), sessionId: id, type: 'approve', payload: { toolCallId: 'e2' } },
     ])
-    const script: Step[] = [
-      {
-        t: 'tool',
-        toolCallId: 'e1',
-        name: 'edit_file',
-        args: { path: 'verify.txt', old_string: 'red', new_string: 'green' },
-      },
-      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: 'pnpm test' } },
-      {
-        t: 'tool',
-        toolCallId: 'e2',
-        name: 'edit_file',
-        args: { path: 'verify.txt', old_string: 'green', new_string: 'blue' },
-      },
-      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: 'pnpm test' } },
-      { t: 'say', text: 'tests pass' },
+    // Distinct turns: the failing run must not let the agent give up early — it
+    // keeps working (edit again, re-run) until verification is green, then ends.
+    const script: ScriptedTurn[] = [
+      { reasoning: 'first fix', toolCalls: [{ toolCallId: 'e1', name: 'edit_file', args: { path: 'verify.txt', old_string: 'red', new_string: 'green' } }] },
+      callTool('r1', 'run_command', { command: 'pnpm test' }),
+      { reasoning: 'tests failed, fix again', toolCalls: [{ toolCallId: 'e2', name: 'edit_file', args: { path: 'verify.txt', old_string: 'green', new_string: 'blue' } }] },
+      callTool('r2', 'run_command', { command: 'pnpm test' }),
+      say('tests pass'),
     ]
     const runResults = ['failing test output\n[exit 1]', 'passing test output\n[exit 0]']
     const fakeTools: Record<string, ToolFn> = {
@@ -569,14 +661,16 @@ describe('runSession', () => {
       run_command: async () => runResults.shift() ?? 'unexpected\n[exit 1]',
     }
 
-    await runSession(store, new ScriptedModel(script), id, { workspaceRoot: workspace, tools: fakeTools, pollMs: 5 })
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools: fakeTools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     expect(types(events)).toEqual([
+      'thinking',
       'tool_proposed',
       'tool_result',
       'tool_proposed',
       'tool_result',
+      'thinking',
       'tool_proposed',
       'tool_result',
       'tool_proposed',
@@ -603,8 +697,8 @@ describe('runSession', () => {
           rej(new Error('aborted'))
         })
       })
-    const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'grep', args: { pattern: 'x', path: 'a.txt' } }]
-    const p = runSession(store, new ScriptedModel(script), id, {
+    const script: ScriptedTurn[] = [callTool('tc1', 'grep', { pattern: 'x', path: 'a.txt' })]
+    const p = runSession(store, new FakeStreamingModel(script), id, {
       workspaceRoot: workspace,
       tools: { ...tools, grep: slow },
       pollMs: 5,
@@ -622,9 +716,6 @@ describe('completedSteps (delta events are non-terminal)', () => {
   const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
 
   it('counts only terminal events, ignoring message_delta and thinking_delta', () => {
-    // A streamed turn: reasoning + text arrive as deltas, then coalesce into one
-    // terminal message. The deltas must not advance the step cursor — the whole
-    // turn is exactly one completed step.
     const events: StoredEvent[] = [
       sev(0, 'thinking_delta', { text: 'weigh' }),
       sev(1, 'thinking_delta', { text: 'ing' }),
@@ -650,7 +741,6 @@ describe('isNoProgressRepeat', () => {
     sev(seq, 'tool_proposed', { toolCallId: tcId, name, kind: 'read-only', args })
   const res = (seq: number, tcId: string, name: string, result: string): StoredEvent =>
     sev(seq, 'tool_result', { toolCallId: tcId, name, result })
-  // n identical list_dir('.') calls that each return the same result.
   const run = (n: number, result = 'same'): StoredEvent[] =>
     Array.from({ length: n }, (_, i) => [
       prop(i * 2, `t${i}`, 'list_dir', { path: '.' }),
@@ -678,18 +768,14 @@ describe('isNoProgressRepeat', () => {
 
   it('ignores non-tool events, orphan results, and non-terminal tool events', () => {
     const evs = [
-      sev(0, 'message', { text: 'hi' }), // no toolCallId
-      res(1, 'orphan', 'list_dir', 'same'), // result with no prior proposal
-      sev(2, 'tool_started', { toolCallId: 'a' }), // has id but neither proposed nor result
+      sev(0, 'message', { text: 'hi' }),
+      res(1, 'orphan', 'list_dir', 'same'),
+      sev(2, 'tool_started', { toolCallId: 'a' }),
       ...run(3),
     ]
     expect(isNoProgressRepeat(evs, same)).toBe(true)
   })
 
-  // Varied-but-fruitless search: the same search tool over DIFFERENT args that
-  // each come back with the identical fruitless result. The exact-repeat rule
-  // misses this because every (name+args) key differs; this is the grep thrash
-  // that walked the step cap (29 greps for "content-length", all "— no matches").
   const fruitlessSearch = (name: string, argsList: Record<string, unknown>[], result: string): StoredEvent[] =>
     argsList.flatMap((args, i) => [prop(i * 2, `s${i}`, name, args), res(i * 2 + 1, `s${i}`, name, result)])
 
@@ -722,11 +808,8 @@ describe('isNoProgressRepeat', () => {
   })
 
   it('does not apply the varied-args rule to non-search tools (e.g. list_dir, read_file)', () => {
-    // Identical content from 3 different read_file paths is not the fruitless-search
-    // failure mode; only the exact-repeat rule applies to non-search tools.
     const reads = fruitlessSearch('read_file', [{ path: 'a.ts' }, { path: 'b.ts' }, { path: 'c.ts' }], 'X')
     expect(isNoProgressRepeat(reads, { name: 'read_file', args: { path: 'd.ts' } })).toBe(false)
-    // list_dir is deliberately excluded: switching to a new dir is real exploration.
     const lists = fruitlessSearch('list_dir', [{ path: '.' }, { path: 'src' }, { path: 'lib' }], '')
     expect(isNoProgressRepeat(lists, { name: 'list_dir', args: { path: 'test' } })).toBe(false)
   })
@@ -792,27 +875,24 @@ describe('runSession web_fetch dedup', () => {
       return `content of ${url}`
     }
 
-    // The model calls web_fetch on the same URL twice; the second call should
-    // hit the cache and succeed rather than triggering the repeat guard.
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'wf1', name: 'web_fetch', args: { url: fetchUrl } },
-      { t: 'tool', toolCallId: 'wf2', name: 'web_fetch', args: { url: fetchUrl } },
-      { t: 'say', text: 'done' },
+    const script: ScriptedTurn[] = [
+      callTool('wf1', 'web_fetch', { url: fetchUrl }),
+      callTool('wf2', 'web_fetch', { url: fetchUrl }),
+      say('done'),
     ]
 
-    await runSession(store, new ScriptedModel(script), id, {
+    await runSession(store, new FakeStreamingModel(script), id, {
       workspaceRoot: workspace,
       tools: { ...tools, web_fetch: fakeFetch },
+      pollMs: 5,
     })
 
     const events = await store.listEvents(id)
-    // Both calls produce a tool_proposed + tool_result; session completes (not error).
     expect(events.filter((e) => e.type === 'tool_proposed')).toHaveLength(2)
     expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(2)
     const results = events
       .filter((e) => e.type === 'tool_result')
       .map((e) => (e.payload as { result: string }).result)
-    // Both results are the cached content string.
     expect(results[0]).toBe(`content of ${fetchUrl}`)
     expect(results[1]).toBe(`content of ${fetchUrl}`)
     expect(await status(id)).toBe('completed')
@@ -868,5 +948,41 @@ describe('planMarkedAllDone', () => {
       { text: 'b', status: 'done' as const },
     ]
     expect(planMarkedAllDone(items)).toBeNull()
+  })
+})
+
+describe('FakeStreamingModel', () => {
+  it('maps a terminal-count cursor onto the right scripted turn (crash-safe indexing)', async () => {
+    // Turn 0 costs 2 terminals (thinking + tool); turn 1 is a no-tool reply. A
+    // cursor of 2 (after turn 0 committed) must resolve to turn 1, proving the
+    // driver derives the turn purely from the log cursor.
+    const driver = new FakeStreamingModel([
+      { reasoning: 'plan', toolCalls: [{ toolCallId: 't1', name: 'read_file', args: { path: 'a.txt' } }] },
+      { text: 'second turn' },
+    ])
+    const noHooks = {}
+    const turn0: TurnResult = await driver.next([], 0, noHooks)
+    expect(turn0.toolCalls).toHaveLength(1)
+    const turn1: TurnResult = await driver.next([], 2, noHooks)
+    expect(turn1).toEqual({ reasoning: '', text: 'second turn', toolCalls: [] })
+  })
+
+  it('streams scripted deltas through the hooks in order', async () => {
+    const driver = new FakeStreamingModel([{ reasoningDeltas: ['a', 'b'], textDeltas: ['x', 'y'] }])
+    const reasoning: string[] = []
+    const text: string[] = []
+    const result = await driver.next([], 0, {
+      onReasoningDelta: (c) => reasoning.push(c),
+      onTextDelta: (c) => text.push(c),
+    })
+    expect(reasoning).toEqual(['a', 'b'])
+    expect(text).toEqual(['x', 'y'])
+    // Concatenated deltas are the coalesced text/reasoning when not overridden.
+    expect(result).toEqual({ reasoning: 'ab', text: 'xy', toolCalls: [] })
+  })
+
+  it('returns an empty no-tool turn past the end of the script (ends the run)', async () => {
+    const driver = new FakeStreamingModel([{ text: 'only turn' }])
+    expect(await driver.next([], 5, {})).toEqual({ reasoning: '', text: '', toolCalls: [] })
   })
 })

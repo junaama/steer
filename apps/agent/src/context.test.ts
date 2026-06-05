@@ -97,6 +97,31 @@ describe('buildContext', () => {
     ])
   })
 
+  it('projects a rebuilt assistant turn — reasoning streamed, message, then a multi-tool batch — coherently', () => {
+    // A streaming turn persists thinking_delta/message_delta (non-context),
+    // coalesced thinking + message, then several tool_results. The LLM thread
+    // must carry the assistant message and EVERY tool result from the turn, in
+    // order, so the next turn sees the full batch outcome.
+    const msgs = buildContext('refactor utils', [
+      ev(0, 'thinking_delta', { text: 'plan' }),
+      ev(1, 'thinking', { text: 'I will grep then read both hits' }),
+      ev(2, 'message_delta', { text: 'On it' }),
+      ev(3, 'message', { text: 'Searching the codebase' }),
+      ev(4, 'tool_result', { name: 'grep', result: 'utils.ts:1' }),
+      ev(5, 'tool_result', { name: 'read_file', result: 'export const x = 1' }),
+      ev(6, 'tool_result', { name: 'read_file', result: 'export const y = 2' }),
+    ])
+    // thinking/deltas are internal — not projected; the message + all three tool
+    // results are, in log order.
+    expect(msgs).toEqual([
+      { role: 'user', content: 'refactor utils' },
+      { role: 'assistant', content: 'Searching the codebase' },
+      { role: 'user', content: '[tool grep result]\nutils.ts:1' },
+      { role: 'user', content: '[tool read_file result]\nexport const x = 1' },
+      { role: 'user', content: '[tool read_file result]\nexport const y = 2' },
+    ])
+  })
+
   it('projects a substitution as the executed tool with a system note (no extra inference)', () => {
     const msgs = buildContext(null, [
       ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),

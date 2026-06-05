@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { sessions, controls, type EventType } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
-import { runSession, ScriptedModel, type Step } from './loop.js'
+import { runSession, FakeStreamingModel, type ScriptedTurn } from './loop.js'
 import { tools } from './tools/index.js'
 
 const TEST_URL =
@@ -85,44 +85,64 @@ describe('coding-agent capstone integration', () => {
     ]
     const failingCommand = `node -e "process.stdout.write('failing test output'); process.exit(1)"`
     const passingCommand = `node -e "process.stdout.write('passing test output')"`
-    const script: Step[] = [
-      { t: 'tool', toolCallId: 'todo1', name: 'todo_write', args: { items: planItems } },
+    // A streamed, multi-turn self-verify session: the first turn STREAMS reasoning
+    // (deltas → coalesced thinking) ALONGSIDE its tool call — proving reasoning is
+    // preserved beside tool calls (AE1, R2) — and the agent keeps going through a
+    // failing run until verification is green (AE3, R5) before ending completed.
+    const script: ScriptedTurn[] = [
       {
-        t: 'tool',
-        toolCallId: 'e1',
-        name: 'edit_file',
-        args: { path: 'verify.txt', old_string: 'status=red', new_string: 'status=yellow' },
+        reasoningDeltas: ['First I plan the work, ', 'then make the edit and verify it.'],
+        toolCalls: [{ toolCallId: 'todo1', name: 'todo_write', args: { items: planItems } }],
       },
-      { t: 'tool', toolCallId: 'r1', name: 'run_command', args: { command: failingCommand } },
+      { toolCalls: [{ toolCallId: 'e1', name: 'edit_file', args: { path: 'verify.txt', old_string: 'status=red', new_string: 'status=yellow' } }] },
+      { toolCalls: [{ toolCallId: 'r1', name: 'run_command', args: { command: failingCommand } }] },
       {
-        t: 'tool',
-        toolCallId: 'e2',
-        name: 'edit_file',
-        args: { path: 'verify.txt', old_string: 'status=yellow', new_string: 'status=green' },
+        reasoning: 'The run failed; fix again and re-verify before finishing.',
+        toolCalls: [{ toolCallId: 'e2', name: 'edit_file', args: { path: 'verify.txt', old_string: 'status=yellow', new_string: 'status=green' } }],
       },
-      { t: 'tool', toolCallId: 'r2', name: 'run_command', args: { command: passingCommand } },
-      { t: 'say', text: 'self-verify complete' },
+      { toolCalls: [{ toolCallId: 'r2', name: 'run_command', args: { command: passingCommand } }] },
+      { text: 'self-verify complete' },
     ]
 
-    await runSession(observingStore, new ScriptedModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    await runSession(observingStore, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
 
     const events = await store.listEvents(id)
     expect(types(events)).toEqual([
+      // Turn 1: the two reasoning chunks coalesce into ONE coarse delta row (the
+      // first has no flush boundary and is under the size threshold, so it buffers
+      // until the second arrives with a sentence-ender), then a thinking event,
+      // then todo_write.
+      'thinking_delta',
+      'thinking',
       'tool_proposed',
       'tool_result',
       'plan',
+      // Turn 2: edit.
       'tool_proposed',
       'tool_result',
+      // Turn 3: failing verification run.
       'tool_proposed',
       'tool_result',
+      // Turn 4: reasoning (don't give up) coalesces, then a second edit.
+      'thinking',
       'tool_proposed',
       'tool_result',
+      // Turn 5: passing verification run.
       'tool_proposed',
       'tool_result',
+      // Turn 6: final message; completion reconciles the plan.
       'message',
-      // Completion reconciles the plan so the artifact can't read as unfinished.
       'plan',
     ])
+
+    // AE1: the streamed reasoning persisted as both delta rows and a coalesced
+    // thinking event ALONGSIDE the tool call — reasoning is not dropped (R2).
+    const thinkingDeltas = events.filter((event) => event.type === 'thinking_delta')
+    expect(thinkingDeltas.map((event) => (event.payload as { text: string }).text).join('')).toBe(
+      'First I plan the work, then make the edit and verify it.',
+    )
+    const firstThinking = events.find((event) => event.type === 'thinking')!.payload as { text: string }
+    expect(firstThinking.text).toBe('First I plan the work, then make the edit and verify it.')
 
     const planEvents = events.filter((event) => event.type === 'plan')
     const plan = planEvents[0]!.payload as { items: typeof planItems }
