@@ -77,9 +77,57 @@ function Harness(): JSX.Element {
     })
   }
 
+  // Append one synced event to a session — the unit the streaming scenario uses to
+  // grow the live transcript a chunk at a time (each append re-syncs to window B).
+  const appendEvent = (sessionId: string, type: RawEvent['type'], payload: Record<string, unknown>): void => {
+    mutate((s) => {
+      const evs = s.events[sessionId] ?? []
+      return { ...s, events: { ...s.events, [sessionId]: [...evs, { seq: evs.length, type, payload }] } }
+    })
+  }
+
+  /**
+   * Drive a session through the live-streaming + diff-review experience the U11
+   * capstone proves end-to-end: stream assistant text as coarse `message_delta`
+   * rows that arrive over time (so the transcript fills in incrementally, synced
+   * live to the other window), then propose a reviewable file-edit diff that the
+   * operator approves. Uses the SAME real Sidebar/SessionDetail/ToolCard/DiffView
+   * the production app renders — only the store is a BroadcastChannel stand-in for
+   * Electric (mirrors the existing two-window harness exactly).
+   */
+  const streamSession = (): void => {
+    const id = `stream-${Math.random().toString(36).slice(2, 8)}`
+    const session: SessionView = { id, title: 'Stream the fix', lastStatus: 'running', model: 'sonnet', updatedAt: Date.now() }
+    mutate((s) => ({ sessions: [session, ...s.sessions], events: { ...s.events, [id]: [] } }))
+    setActiveId(id)
+
+    // Stream the reply in coarse chunks, one per tick — each is a `message_delta`
+    // row that folds into the one growing message item (buildTrace), so the text
+    // visibly fills in. After the last chunk, propose the reviewable diff.
+    const chunks = ['Updating ', 'the login ', 'handler now.']
+    chunks.forEach((chunk, i) => {
+      setTimeout(() => appendEvent(id, 'message_delta', { text: chunk }), 80 * (i + 1))
+    })
+    setTimeout(() => {
+      appendEvent(id, 'tool_proposed', {
+        toolCallId: 'sc1',
+        name: 'write_file',
+        kind: 'side-effecting',
+        args: { path: 'src/login.ts' },
+        before: 'return null',
+        after: 'return session',
+      })
+      mutate((s) => ({ ...s, sessions: s.sessions.map((x) => (x.id === id ? { ...x, lastStatus: 'awaiting-approval' } : x)) }))
+    }, 80 * (chunks.length + 1))
+  }
+
   const active = state.sessions.find((x) => x.id === activeId) ?? null
 
   return (
+    <>
+    <div style={{ position: 'fixed', top: 4, right: 4, zIndex: 1000 }}>
+      <button onClick={streamSession}>Stream session</button>
+    </div>
     <Shell
       userEmail="e2e@steer.dev"
       theme="dark"
@@ -128,6 +176,7 @@ function Harness(): JSX.Element {
         )
       }
     />
+    </>
   )
 }
 

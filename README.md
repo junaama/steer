@@ -91,6 +91,18 @@ The web UI now shows the session with an `env: laptop` badge, and any follow-up 
 
 Open the same session in two browser windows. Start a run in one — the agent's messages, tool calls, and your interceptions appear live in both with no reload. Open DevTools → Network to see Electric's long-lived `/v1/shape` stream and discrete `POST /writes`.
 
+### What to watch for — the live agent experience
+
+Start a session and watch the transcript fill in as the agent works:
+
+- **Streaming reasoning + reply.** The agent's thinking and reply stream in as they're generated (coarse, synced chunks — not a blank wait), rendered as **markdown with syntax-highlighted code**.
+- **Reasoning kept beside tool calls.** The agent's reasoning shows even on turns that also call a tool — it isn't discarded.
+- **Multi-tool turns.** A turn can fire several tool calls at once (e.g. read + grep + list); each side-effecting one still passes the approval gate.
+- **Diff-review approvals.** A `write_file`/`edit_file` proposal renders as a reviewable, syntax-highlighted **diff** — approve or reject the actual change before it applies.
+- **It asks instead of guessing.** When the agent is missing a detail it can call `ask_user`, pausing for your answer; it also has `git_diff` (working-tree diff), write-side LSP (`rename_symbol` / `format` / `code_action`), and **vision** (attach a screenshot on a vision-capable provider).
+
+Each of these is a synced event row — open the session in a second window and they all appear there live too. See `docs/changelog/2026-06-05-live-agent-experience.md` for the full feature list.
+
 ---
 
 ## Architecture
