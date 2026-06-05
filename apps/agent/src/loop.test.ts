@@ -111,6 +111,28 @@ describe('runSession', () => {
     expect(await status(id)).toBe('error')
   })
 
+  it('stops a varied-but-fruitless search (grep, changing args, identical "no matches") before the cap', async () => {
+    const id = await newSession()
+    // The grep thrash that walked the step cap on a real SWE-bench instance: the
+    // same search tool with a fresh non-matching pattern each step, so every
+    // (name+args) key differs but every result is the identical "— no matches".
+    // The exact-repeat rule misses this; the search-thrash rule must still stop it.
+    let n = 0
+    const thrash: ModelDriver = {
+      next: async () => ({ t: 'tool', toolCallId: `tc${n}`, name: 'grep', args: { pattern: `zzz${n++}`, path: 'a.txt' } }),
+    }
+    await runSession(store, thrash, id, { workspaceRoot: workspace, tools, maxSteps: 80 })
+
+    const events = await store.listEvents(id)
+    const results = events.filter((e) => e.type === 'tool_result')
+    expect(results).toHaveLength(3) // REPEAT_LIMIT, not 80 — bounded despite varied args
+    expect((results[0]!.payload as { result: string }).result).toBe('— no matches')
+    const msg = events.filter((e) => e.type === 'message').at(-1)!.payload as { text: string }
+    expect(msg.text).toContain('grep')
+    expect(msg.text).toContain('no progress')
+    expect(await status(id)).toBe('error')
+  })
+
   it('halts on an interrupt control row and records it (control-plane-via-data-plane)', async () => {
     const id = await newSession()
     await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'interrupt', payload: {} })
@@ -621,6 +643,51 @@ describe('isNoProgressRepeat', () => {
       ...run(3),
     ]
     expect(isNoProgressRepeat(evs, same)).toBe(true)
+  })
+
+  // Varied-but-fruitless search: the same search tool over DIFFERENT args that
+  // each come back with the identical fruitless result. The exact-repeat rule
+  // misses this because every (name+args) key differs; this is the grep thrash
+  // that walked the step cap (29 greps for "content-length", all "— no matches").
+  const fruitlessSearch = (name: string, argsList: Record<string, unknown>[], result: string): StoredEvent[] =>
+    argsList.flatMap((args, i) => [prop(i * 2, `s${i}`, name, args), res(i * 2 + 1, `s${i}`, name, result)])
+
+  it('stops a grep that keeps returning the same fruitless result on varied paths', () => {
+    const evs = fruitlessSearch(
+      'grep',
+      [{ pattern: 'content-length', path: '.' }, { pattern: 'content-length', path: 'adapters.py' }, { pattern: 'content-length', path: 'sessions.py' }],
+      '— no matches',
+    )
+    expect(isNoProgressRepeat(evs, { name: 'grep', args: { pattern: 'content-length', path: 'models.py' } })).toBe(true)
+  })
+
+  it('stops a glob that keeps returning the same fruitless result on varied patterns', () => {
+    const evs = fruitlessSearch('glob', [{ pattern: '*.py' }, { pattern: '*.txt' }, { pattern: '*.md' }], '— no files')
+    expect(isNoProgressRepeat(evs, { name: 'glob', args: { pattern: '*.json' } })).toBe(true)
+  })
+
+  it('does not stop a varied search whose results actually differ (that is progress)', () => {
+    const evs = [
+      prop(0, 'g0', 'grep', { pattern: 'x', path: 'a.py' }), res(1, 'g0', 'grep', 'a.py:1:x'),
+      prop(2, 'g1', 'grep', { pattern: 'x', path: 'b.py' }), res(3, 'g1', 'grep', 'b.py:2:x'),
+      prop(4, 'g2', 'grep', { pattern: 'x', path: 'c.py' }), res(5, 'g2', 'grep', 'c.py:3:x'),
+    ]
+    expect(isNoProgressRepeat(evs, { name: 'grep', args: { pattern: 'x', path: 'd.py' } })).toBe(false)
+  })
+
+  it('does not stop when the proposed call switches to a different search tool', () => {
+    const evs = fruitlessSearch('grep', [{ path: '.' }, { path: 'a' }, { path: 'b' }], '— no matches')
+    expect(isNoProgressRepeat(evs, { name: 'glob', args: { pattern: '*.py' } })).toBe(false)
+  })
+
+  it('does not apply the varied-args rule to non-search tools (e.g. list_dir, read_file)', () => {
+    // Identical content from 3 different read_file paths is not the fruitless-search
+    // failure mode; only the exact-repeat rule applies to non-search tools.
+    const reads = fruitlessSearch('read_file', [{ path: 'a.ts' }, { path: 'b.ts' }, { path: 'c.ts' }], 'X')
+    expect(isNoProgressRepeat(reads, { name: 'read_file', args: { path: 'd.ts' } })).toBe(false)
+    // list_dir is deliberately excluded: switching to a new dir is real exploration.
+    const lists = fruitlessSearch('list_dir', [{ path: '.' }, { path: 'src' }, { path: 'lib' }], '')
+    expect(isNoProgressRepeat(lists, { name: 'list_dir', args: { path: 'test' } })).toBe(false)
   })
 })
 

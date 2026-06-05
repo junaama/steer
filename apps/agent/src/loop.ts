@@ -95,21 +95,32 @@ export function completedSteps(events: StoredEvent[]): number {
 // identical calls through before stopping.
 const REPEAT_LIMIT = 3
 
+// Read-only search tools whose fruitless result is a fixed sentinel (grep
+// "— no matches", glob "— no files"). When one of these returns the identical
+// fruitless result REPEAT_LIMIT times running while only its args change, the
+// model is thrashing the search space — the grep loop that walked the step cap.
+// list_dir is intentionally excluded: switching to a new directory is real
+// exploration whose results normally differ, so the same-result check already
+// guards it without the args-agnostic rule below.
+const SEARCH_TOOLS = new Set(['grep', 'glob'])
+
 function callKey(name: string, args: unknown): string {
   return `${name}(${JSON.stringify(args)})`
 }
 
-/** Each executed tool call as (name+args key, result), in log order. */
-function executedCalls(events: readonly StoredEvent[]): { key: string; result: string }[] {
-  const keys = new Map<string, string>()
-  const out: { key: string; result: string }[] = []
+/** Each executed tool call as (name+args key, tool name, result), in log order. */
+function executedCalls(events: readonly StoredEvent[]): { key: string; name: string; result: string }[] {
+  const meta = new Map<string, { key: string; name: string }>()
+  const out: { key: string; name: string; result: string }[] = []
   for (const e of events) {
     const p = e.payload as { toolCallId?: unknown; name?: unknown; args?: unknown; result?: unknown }
     if (typeof p.toolCallId !== 'string') continue
-    if (e.type === 'tool_proposed') keys.set(p.toolCallId, callKey(String(p.name ?? ''), p.args))
-    else if (e.type === 'tool_result') {
-      const key = keys.get(p.toolCallId)
-      if (key !== undefined) out.push({ key, result: String(p.result ?? '') })
+    if (e.type === 'tool_proposed') {
+      const name = String(p.name ?? '')
+      meta.set(p.toolCallId, { key: callKey(name, p.args), name })
+    } else if (e.type === 'tool_result') {
+      const m = meta.get(p.toolCallId)
+      if (m !== undefined) out.push({ key: m.key, name: m.name, result: String(p.result ?? '') })
     }
   }
   return out
@@ -141,11 +152,22 @@ export function findCachedWebFetch(
 }
 
 /**
- * True when the model is about to repeat a tool call that has already produced
- * the same result REPEAT_LIMIT times running — a no-progress loop (e.g. listing
- * the same dir over and over after a task it can't finish). Identical results
- * mean no new information; differing results (polling a file as it changes) are
- * progress and don't trip this. Bounds the flailing the step cap let run wild.
+ * True when the model is about to make a no-progress search/inspect call — the
+ * last REPEAT_LIMIT executed calls all returned the same result (no new
+ * information), and the proposed call would extend that streak. Two shapes trip
+ * it:
+ *
+ *   1. Exact repeat — the proposed call matches the identical recent calls
+ *      (e.g. listing the same dir over and over after a task it can't finish).
+ *   2. Fruitless search — the proposed call and the recent calls are all the
+ *      SAME search tool (grep/glob) returning that identical fruitless result
+ *      while only the args change (e.g. grep "content-length" over file after
+ *      file, each "— no matches"). The exact-repeat rule alone missed this
+ *      because every (name+args) key differs, so it walked the step cap.
+ *
+ * Differing results (polling a file as it changes, or a search that actually
+ * finds varied matches) mean progress and don't trip this. Bounds the flailing
+ * the step cap otherwise let run wild.
  */
 export function isNoProgressRepeat(
   events: readonly StoredEvent[],
@@ -154,8 +176,13 @@ export function isNoProgressRepeat(
   const calls = executedCalls(events)
   if (calls.length < REPEAT_LIMIT) return false
   const recent = calls.slice(-REPEAT_LIMIT)
+  // No new information: every recent call returned the identical result.
+  if (!recent.every((c) => c.result === recent[0]!.result)) return false
+  // (1) Exact repeat — the proposed call is identical to the recent ones.
   const key = callKey(step.name, step.args)
-  return recent.every((c) => c.key === key && c.result === recent[0]!.result)
+  if (recent.every((c) => c.key === key)) return true
+  // (2) Fruitless search — same search tool, varied args, identical result.
+  return SEARCH_TOOLS.has(step.name) && recent.every((c) => c.name === step.name)
 }
 
 function parentEvents(events: StoredEvent[]): StoredEvent[] {

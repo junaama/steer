@@ -38,3 +38,6 @@ dogfood-output/
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+# Benchmark eval — shallow-cloned repos (large, reproducible via pull.ts)
+apps/agent/evals/benchmarks/.repos/

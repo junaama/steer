@@ -141,6 +141,31 @@ pnpm --filter @steer/web e2e # Playwright two-window live-sync test (self-contai
 
 Integration tests run against a real Postgres (`docker compose up -d postgres`). The two-window E2E drives two browser tabs through a shared store harness, proving the live cross-window sync UX.
 
+### Evals — the Langfuse build loop
+
+The agent has a committed eval suite (`apps/agent/evals/`) that runs the **real** `runSession` loop over goldens and scores the **actual event log** (tool calls + final message), so failures drive the next code change instead of being a final rubber-stamp.
+
+```bash
+# 1. Isolated eval DB (so the running container daemon can't claim eval sessions):
+docker compose up -d postgres
+docker compose exec -T postgres psql -U steer -d steer -c "CREATE DATABASE steer_eval;"
+DATABASE_URL=postgresql://steer:steer@localhost:54321/steer_eval?sslmode=disable \
+  pnpm --filter @steer/server migrate:local
+
+# 2. Run the loop (needs an LLM key in the environment; prints per-golden scores):
+EVAL_DATABASE_URL=postgresql://steer:steer@localhost:54321/steer_eval?sslmode=disable \
+  pnpm --filter @steer/agent eval
+```
+
+Without `LANGFUSE_*` keys the runner prints scores locally. To also push traces + scores to a dashboard, run **self-hosted Langfuse** — but map its web port off `3000` (Steer's Electric already publishes `3000`):
+
+```bash
+git clone https://github.com/langfuse/langfuse && cd langfuse
+LANGFUSE_PORT=3100 docker compose up   # then sign up at http://localhost:3100, create API keys
+```
+
+Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL=http://localhost:3100` (in your environment or `.env.local`) and re-run `pnpm --filter @steer/agent eval` — it switches to `langfuse.experiment.run`, and the live daemon also emits traces (the `experimental_telemetry` in `model.ts` is gated on those keys). Add new goldens in `evals/goldens.ts`; add scorers in `evals/evaluators.ts`.
+
 ### Run locally (hot reload)
 
 `docker compose up` is the one-shot deliverable, but rebuilds an image on every change. For a tight edit-loop, run the app you're working on on the host (Vite HMR / `tsx watch`) against containerized infrastructure. The host dev scripts read the repo-root `.env` and `.env.local`: they inject the localhost `DATABASE_URL` / `ELECTRIC_URL` (the file's values use Docker hostnames the host can't resolve) and pull the model key from the file.

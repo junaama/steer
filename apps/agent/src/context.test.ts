@@ -30,6 +30,24 @@ describe('buildContext', () => {
     ])
   })
 
+  it('keeps the original task in context after a failed turn + clarification (sess-eeb54402 shape)', () => {
+    // The agent failed turn 1, the user clarified the path, and the model must
+    // still see the ORIGINAL request. The leading user message must remain the
+    // task, with the failed turn and the clarification following in order.
+    const msgs = buildContext('whats the first line of the readme in the yourai folder', [
+      ev(0, 'tool_result', { name: 'list_dir', result: '— no such dir' }),
+      ev(1, 'message', { text: 'The yourai folder does not exist.' }),
+      ev(2, 'user_message', { text: 'in dev/yourai' }),
+      ev(3, 'tool_result', { name: 'list_dir', result: 'README.md\nDockerfile' }),
+    ])
+    expect(msgs[0]).toEqual({ role: 'user', content: 'whats the first line of the readme in the yourai folder' })
+    // The original task is still present alongside the clarification — the model
+    // has everything it needs to finish; completing it is a behavior the agent
+    // eval (not this projection) must enforce.
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'user', 'assistant', 'user', 'user'])
+    expect(msgs.some((m) => m.content === 'in dev/yourai')).toBe(true)
+  })
+
   it('adds no plan note when no plan event exists', () => {
     expect(buildContext('fix login', [ev(0, 'message', { text: 'done' })])).toEqual([
       { role: 'user', content: 'fix login' },

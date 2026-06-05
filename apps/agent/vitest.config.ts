@@ -16,6 +16,7 @@ export default defineConfig({
         'src/start.ts',
         'src/daemon.ts',
         'src/model.ts',
+        'src/tracing.ts',
         'src/lsp.ts',
         'src/mcp.ts',
         'src/db.ts',

@@ -1,0 +1,4 @@
+// TODO: add unicode normalization
+export function slugify(input: string): string {
+  return input.trim().toLowerCase().replace(/\s+/g, '-')
+}
