@@ -202,12 +202,12 @@ describe('SessionDetail', () => {
         onContinue={vi.fn()}
       />,
     )
-    expect(screen.getByText('typing').getAttribute('data-streaming')).toBe('true')
+    expect(screen.getByText('typing').closest('.ev-body')?.getAttribute('data-streaming')).toBe('true')
   })
 
   it('leaves a settled message body unmarked', () => {
     setup('completed', { items: [{ kind: 'message', key: 'm0', text: 'settled' }] })
-    expect(screen.getByText('settled').getAttribute('data-streaming')).toBeNull()
+    expect(screen.getByText('settled').closest('.ev-body')?.getAttribute('data-streaming')).toBeNull()
   })
 })
 

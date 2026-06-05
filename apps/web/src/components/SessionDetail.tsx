@@ -5,6 +5,7 @@ import type { PlanItem, TraceItem, ToolItem } from '../lib/trace.js'
 import { StatusPill } from './StatusPill.js'
 import { ToolCard } from './ToolCard.js'
 import { TodoPanel } from './TodoPanel.js'
+import { Markdown } from './Markdown.js'
 
 const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval']
 
@@ -52,7 +53,7 @@ export function TraceRow({ item, controls }: { item: TraceItem; controls?: React
     <div className={`ev ev-${item.kind}`}>
       <div className="ev-role">{ROLE_LABEL[item.kind]}</div>
       <div className="ev-body" data-streaming={item.streaming ? true : undefined}>
-        {item.text}
+        <Markdown>{item.text}</Markdown>
       </div>
     </div>
   )
