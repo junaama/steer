@@ -9,6 +9,12 @@ export interface MessageItem {
   kind: 'message' | 'thinking' | 'user'
   key: string
   text: string
+  /**
+   * True while this item is built purely from streamed *_delta rows and no
+   * terminal `message`/`thinking` has arrived yet. The terminal event replaces
+   * the accumulated deltas in place so the item renders once (no duplicate).
+   */
+  streaming?: boolean
 }
 
 export interface ToolItem {
@@ -21,6 +27,11 @@ export interface ToolItem {
   status: ToolStatus
   result: string | null
   substitutedFrom: string | null
+  /**
+   * Concatenated `tool_stdout_delta` chunks streamed before the terminal
+   * `tool_result` arrives. Shown live; superseded by `result` once final.
+   */
+  streamingOutput?: string
   /** True when the operator hand-edited the args before this tool ran (U9 audit). */
   editedArgs?: boolean
   /** For file-writing tools: prior + proposed content (U12 diff). */
@@ -69,26 +80,68 @@ export function buildTrace(events: readonly RawEvent[], task?: string | null): T
   return items
 }
 
+/** The streaming-message kind a `*_delta` row accumulates into. */
+function deltaKind(type: EventType): 'message' | 'thinking' | null {
+  if (type === 'message_delta') return 'message'
+  if (type === 'thinking_delta') return 'thinking'
+  return null
+}
+
 function buildTraceLevel(sorted: readonly RawEvent[], parentId: string | undefined): TraceItem[] {
   const levelEvents = sorted.filter((event) => parentToolCallId(event) === parentId)
   const order: string[] = []
   const messages = new Map<string, MessageItem>()
   const tools = new Map<string, ToolItem>()
+  // Keys of the in-flight streaming message/thinking items, so consecutive
+  // deltas append to the same item and a later terminal can replace it in place.
+  const openDelta: { message?: string; thinking?: string } = {}
 
   for (const e of levelEvents) {
+    const dKind = deltaKind(e.type)
+    if (dKind) {
+      const chunk = String(e.payload.text ?? '')
+      const openKey = openDelta[dKind]
+      if (openKey !== undefined) {
+        const prev = messages.get(openKey)!
+        messages.set(openKey, { ...prev, text: prev.text + chunk })
+      } else {
+        const key = `${dKind[0]}d-${e.seq}`
+        order.push(key)
+        messages.set(key, { kind: dKind, key, text: chunk, streaming: true })
+        openDelta[dKind] = key
+      }
+      continue
+    }
+
     if (e.type === 'message' || e.type === 'thinking' || e.type === 'user_message') {
       // user_message is the operator's follow-up turn — render it as a user bubble.
       // Annotated so adding a new message-like EventType here fails at the source.
       const kind: MessageItem['kind'] = e.type === 'user_message' ? 'user' : e.type
+      const text = String(e.payload.text ?? '')
+      // A terminal message/thinking coalesces its streamed deltas: replace the
+      // open streaming item in place so the turn renders once, not twice.
+      if (kind !== 'user' && openDelta[kind] !== undefined) {
+        const openKey = openDelta[kind]!
+        messages.set(openKey, { kind, key: openKey, text })
+        openDelta[kind] = undefined
+        continue
+      }
       const key = `${e.type[0]}-${e.seq}`
       order.push(key)
-      messages.set(key, { kind, key, text: String(e.payload.text ?? '') })
+      messages.set(key, { kind, key, text })
       continue
     }
 
     const toolCallId = e.payload.toolCallId
     if (typeof toolCallId !== 'string') continue
     const key = `tool-${toolCallId}`
+
+    if (e.type === 'tool_stdout_delta') {
+      const prev = tools.get(key)
+      if (!prev) continue
+      tools.set(key, { ...prev, streamingOutput: (prev.streamingOutput ?? '') + String(e.payload.chunk ?? '') })
+      continue
+    }
 
     if (e.type === 'tool_proposed') {
       if (!tools.has(key)) order.push(key)

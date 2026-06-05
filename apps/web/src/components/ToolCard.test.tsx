@@ -107,6 +107,19 @@ describe('ToolCard', () => {
     expect(screen.getByText('Wrote a')).toBeInTheDocument()
   })
 
+  it('shows streaming stdout before the result arrives', () => {
+    render(<ToolCard tool={tool({ name: 'run_command', status: 'running', result: null, streamingOutput: 'building…\n' })} />)
+    const stream = screen.getByTestId('tool-tc1-stream')
+    expect(stream).toHaveTextContent('building…')
+    expect(screen.getByText('Output')).toBeInTheDocument()
+  })
+
+  it('hides the streaming block once the terminal result lands', () => {
+    render(<ToolCard tool={tool({ name: 'grep', status: 'done', result: 'final output', streamingOutput: 'building…' })} />)
+    expect(screen.queryByTestId('tool-tc1-stream')).not.toBeInTheDocument()
+    expect(screen.getByText('final output')).toBeInTheDocument()
+  })
+
   it('renders nested subagent children recursively', () => {
     render(
       <ToolCard

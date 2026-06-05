@@ -203,6 +203,112 @@ describe('buildTrace', () => {
     const frozen = Object.freeze(input)
     expect(() => buildTrace(frozen)).not.toThrow()
   })
+
+  describe('streamed deltas', () => {
+    it('folds consecutive message_delta rows into one growing message item', () => {
+      const items = buildTrace([ev(0, 'message_delta', { text: 'Hel' }), ev(1, 'message_delta', { text: 'lo' })])
+      expect(items).toHaveLength(1)
+      const msg = items[0] as { kind: string; text: string; streaming?: boolean }
+      expect(msg.kind).toBe('message')
+      expect(msg.text).toBe('Hello')
+      // Still streaming until a terminal `message` coalesces it.
+      expect(msg.streaming).toBe(true)
+    })
+
+    it('folds thinking_delta rows the same way as message deltas', () => {
+      const items = buildTrace([ev(0, 'thinking_delta', { text: 'wei' }), ev(1, 'thinking_delta', { text: 'gh' })])
+      expect(items).toHaveLength(1)
+      const t = items[0] as { kind: string; text: string; streaming?: boolean }
+      expect(t.kind).toBe('thinking')
+      expect(t.text).toBe('weigh')
+      expect(t.streaming).toBe(true)
+    })
+
+    it('lets a terminal message replace its deltas — rendered once, no duplicate', () => {
+      const items = buildTrace([
+        ev(0, 'message_delta', { text: 'Hel' }),
+        ev(1, 'message_delta', { text: 'lo' }),
+        ev(2, 'message', { text: 'Hello, world' }),
+      ])
+      expect(items).toHaveLength(1)
+      const msg = items[0] as { kind: string; text: string; streaming?: boolean }
+      expect(msg.text).toBe('Hello, world')
+      // The terminal clears the streaming flag.
+      expect(msg.streaming).toBeUndefined()
+    })
+
+    it('lets a terminal thinking replace its deltas in place', () => {
+      const items = buildTrace([ev(0, 'thinking_delta', { text: 'po' }), ev(1, 'thinking', { text: 'pondered' })])
+      expect(items).toHaveLength(1)
+      expect((items[0] as { text: string }).text).toBe('pondered')
+      expect((items[0] as { streaming?: boolean }).streaming).toBeUndefined()
+    })
+
+    it('starts a fresh streaming item for deltas that arrive after a terminal coalesce', () => {
+      const items = buildTrace([
+        ev(0, 'message_delta', { text: 'one' }),
+        ev(1, 'message', { text: 'first' }),
+        ev(2, 'message_delta', { text: 'two' }),
+      ])
+      expect(items.map((i) => (i as { text: string }).text)).toEqual(['first', 'two'])
+      expect((items[0] as { streaming?: boolean }).streaming).toBeUndefined()
+      expect((items[1] as { streaming?: boolean }).streaming).toBe(true)
+    })
+
+    it('defaults a sparse message_delta to empty text', () => {
+      const items = buildTrace([ev(0, 'message_delta', {})])
+      expect((items[0] as { text: string }).text).toBe('')
+    })
+
+    it('accumulates tool_stdout_delta chunks as streaming output before the result', () => {
+      const items = buildTrace([
+        ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'run_command', kind: 'read-only', args: {} }),
+        ev(1, 'tool_stdout_delta', { toolCallId: 'tc1', name: 'run_command', chunk: 'line1\n' }),
+        ev(2, 'tool_stdout_delta', { toolCallId: 'tc1', name: 'run_command', chunk: 'line2' }),
+      ])
+      const tool = items[0] as ToolItem
+      expect(tool.streamingOutput).toBe('line1\nline2')
+      expect(tool.result).toBeNull()
+    })
+
+    it('keeps the streaming buffer but supersedes it once tool_result arrives', () => {
+      const items = buildTrace([
+        ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'run_command', kind: 'read-only', args: {} }),
+        ev(1, 'tool_stdout_delta', { toolCallId: 'tc1', name: 'run_command', chunk: 'partial' }),
+        ev(2, 'tool_result', { toolCallId: 'tc1', name: 'run_command', result: 'partial done' }),
+      ])
+      const tool = items[0] as ToolItem
+      expect(tool.streamingOutput).toBe('partial')
+      expect(tool.result).toBe('partial done')
+    })
+
+    it('defaults a sparse tool_stdout_delta chunk to empty string', () => {
+      const items = buildTrace([
+        ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),
+        ev(1, 'tool_stdout_delta', { toolCallId: 'tc1', name: 'grep' }),
+      ])
+      expect((items[0] as ToolItem).streamingOutput).toBe('')
+    })
+
+    it('ignores a tool_stdout_delta with no prior proposal or a non-string id', () => {
+      const items = buildTrace([
+        ev(0, 'tool_stdout_delta', { toolCallId: 'ghost', name: 'grep', chunk: 'x' }),
+        ev(1, 'tool_stdout_delta', { toolCallId: 99, name: 'grep', chunk: 'y' }),
+      ])
+      expect(items).toHaveLength(0)
+    })
+
+    it('streams deltas nested under a subagent tool card', () => {
+      const items = buildTrace([
+        ev(0, 'tool_proposed', { toolCallId: 'task1', name: 'task', kind: 'side-effecting', args: {} }),
+        ev(1, 'message_delta', { parentToolCallId: 'task1', text: 'sub ' }),
+        ev(2, 'message_delta', { parentToolCallId: 'task1', text: 'reply' }),
+      ])
+      const tool = items[0] as ToolItem
+      expect(tool.children?.map((c) => c.kind)).toEqual(['message'])
+      expect((tool.children?.[0] as { text: string }).text).toBe('sub reply')
+    })
+  })
 })
 
 describe('latestPlan', () => {

@@ -84,6 +84,14 @@ export function ToolCard({ tool, controls }: { tool: ToolItem; controls?: ReactN
             <DiffView file={String(tool.args.path ?? 'file')} diff={computeDiff(tool.before ?? '', tool.after)} />
           </div>
         )}
+        {tool.result === null && tool.streamingOutput !== undefined && (
+          <div className="tc-section">
+            <div className="tc-label">Output</div>
+            <pre className="result-block result-terminal" data-testid={`tool-${tool.toolCallId}-stream`}>
+              <code>{tool.streamingOutput}</code>
+            </pre>
+          </div>
+        )}
         {tool.result !== null && (
           <div className="tc-section">
             <div className="tc-label">{tool.after !== undefined ? 'Outcome' : 'Result'}</div>

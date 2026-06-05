@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { SessionDetail, type SessionDetailProps } from './SessionDetail.js'
+import { SessionDetail, resolveTraceRows, TraceRow, type SessionDetailProps } from './SessionDetail.js'
 import type { TraceItem } from '../lib/trace.js'
 import type { SessionStatus } from '@steer/schema'
 
@@ -181,5 +181,116 @@ describe('SessionDetail', () => {
       expect(screen.getByPlaceholderText('Send a follow-up instruction…')).toBeInTheDocument()
       expect(screen.getByPlaceholderText('Send a follow-up instruction…')).not.toBeDisabled()
     })
+  })
+
+  it('renders an empty trace without rows or a live tail', () => {
+    setup('running', { items: [] })
+    // No trace rows, and the live tail is suppressed for an empty transcript.
+    expect(screen.queryByText(/live — following/)).not.toBeInTheDocument()
+    expect(screen.getByText('0 events')).toBeInTheDocument()
+  })
+
+  it('marks a still-streaming message body for the live caret', () => {
+    render(
+      <SessionDetail
+        title="t"
+        model="sonnet"
+        status="running"
+        items={[{ kind: 'message', key: 'm0', text: 'typing', streaming: true }]}
+        plan={null}
+        onInterrupt={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('typing').getAttribute('data-streaming')).toBe('true')
+  })
+
+  it('leaves a settled message body unmarked', () => {
+    setup('completed', { items: [{ kind: 'message', key: 'm0', text: 'settled' }] })
+    expect(screen.getByText('settled').getAttribute('data-streaming')).toBeNull()
+  })
+})
+
+describe('resolveTraceRows', () => {
+  it('returns the virtualizer rows verbatim when it reports any', () => {
+    const virtual = [
+      { index: 2, start: 240 },
+      { index: 3, start: 360 },
+    ]
+    expect(resolveTraceRows(virtual, 10)).toEqual(virtual)
+  })
+
+  it('returns no rows for an empty trace', () => {
+    expect(resolveTraceRows([], 0)).toEqual([])
+  })
+
+  it('falls back to every row at its estimated offset when the virtualizer is blank', () => {
+    expect(resolveTraceRows([], 3)).toEqual([
+      { index: 0, start: 0 },
+      { index: 1, start: 120 },
+      { index: 2, start: 240 },
+    ])
+  })
+})
+
+describe('TraceRow', () => {
+  it('renders a tool card with its injected controls for a tool item', () => {
+    render(
+      <TraceRow
+        item={{
+          kind: 'tool',
+          key: 'tool-tc1',
+          toolCallId: 'tc1',
+          name: 'grep',
+          toolKind: 'read-only',
+          args: {},
+          status: 'running',
+          result: null,
+          substitutedFrom: null,
+        }}
+        controls={<button>Intervene</button>}
+      />,
+    )
+    expect(screen.getByTestId('tool-tc1')).toBeInTheDocument()
+    expect(screen.getByText('Intervene')).toBeInTheDocument()
+  })
+
+  it('renders a message bubble for a non-tool item', () => {
+    render(<TraceRow item={{ kind: 'message', key: 'm0', text: 'hi there' }} />)
+    expect(screen.getByText('hi there')).toBeInTheDocument()
+    expect(screen.getByText('assistant')).toBeInTheDocument()
+  })
+})
+
+describe('SessionDetail virtualization', () => {
+  // jsdom has no layout, so the virtualizer falls back to rendering all rows at
+  // their estimated offsets (see resolveTraceRows). The windowing *decision* is
+  // unit-tested on resolveTraceRows above; here we assert the container is sized
+  // and every row is reachable through the virtualized wrapper.
+  it('sizes the scroll spacer to the estimated extent of all rows', () => {
+    const many: TraceItem[] = Array.from({ length: 50 }, (_, i) => ({
+      kind: 'message' as const,
+      key: `m${i}`,
+      text: `row ${i}`,
+    }))
+    const { container } = render(
+      <SessionDetail
+        title="t"
+        model="sonnet"
+        status="completed"
+        items={many}
+        plan={null}
+        onInterrupt={vi.fn()}
+        onContinue={vi.fn()}
+      />,
+    )
+    const spacer = container.querySelector('.trace-virtual') as HTMLElement
+    // 50 rows × 120px estimate.
+    expect(spacer.style.height).toBe('6000px')
+    expect(screen.getByText('row 0')).toBeInTheDocument()
+    expect(screen.getByText('row 49')).toBeInTheDocument()
+    // Rows are absolutely positioned at their estimated offset.
+    const last = container.querySelector('[data-index="49"]') as HTMLElement
+    expect(last.style.transform).toBe('translateY(5880px)')
   })
 })
