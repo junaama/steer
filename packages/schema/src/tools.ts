@@ -48,6 +48,9 @@ export const toolArgSchemas = {
   }),
   ask_user: z.object({ question: z.string().min(1) }),
   git_diff: z.object({ staged: z.boolean().optional(), path: z.string().min(1).optional() }),
+  rename_symbol: lspPositionSchema.extend({ newName: z.string().min(1) }),
+  format: z.object({ path: z.string().min(1) }),
+  code_action: lspPositionSchema,
 } as const
 
 export type ToolName = keyof typeof toolArgSchemas
@@ -78,6 +81,12 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   ask_user: 'side-effecting',
   // git_diff only READS the working tree (`git diff`) — no mutation, no gate.
   git_diff: 'read-only',
+  // Write-side LSP tools (R13) MUTATE files (rename rewrites every reference,
+  // format/code_action rewrite the buffer) ⇒ side-effecting ⇒ gated like edits,
+  // and they surface before/after so the diff-review UI applies (R15).
+  rename_symbol: 'side-effecting',
+  format: 'side-effecting',
+  code_action: 'side-effecting',
 }
 
 export const READ_ONLY_TOOLS: ToolName[] = (Object.keys(TOOL_POLICY) as ToolName[]).filter(
@@ -122,6 +131,15 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   git_diff:
     "Show the workspace's current git diff (unstaged by default; pass staged:true for the index, " +
     'path to scope to a sub-path). Use this to see what has changed so far instead of reconstructing it from edits.',
+  rename_symbol:
+    'Rename the symbol at a file position to newName across every reference via the language server. ' +
+    'This rewrites files — the change is proposed for review and applies only after approval.',
+  format:
+    'Format a file with the language server, rewriting it to the canonical style. ' +
+    'The change is proposed for review and applies only after approval.',
+  code_action:
+    'Apply the language server code action (quick fix / refactor) available at a file position. ' +
+    'This rewrites files — the change is proposed for review and applies only after approval.',
 }
 
 export function isToolName(name: string): name is ToolName {

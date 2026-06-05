@@ -6,7 +6,15 @@ import { createLspClient } from '../lsp.js'
 import { runSubagent, type SubagentDriverFactory } from '../subagent.js'
 import type { AgentStore } from '../store.js'
 import { edit_file, multi_edit } from './edit.js'
-import { makeDefinitionTool, makeDiagnosticsTool, makeHoverTool, makeReferencesTool } from './lsp.js'
+import {
+  makeCodeActionTool,
+  makeDefinitionTool,
+  makeDiagnosticsTool,
+  makeFormatTool,
+  makeHoverTool,
+  makeReferencesTool,
+  makeRenameSymbolTool,
+} from './lsp.js'
 import { run_command } from './run.js'
 import { git_diff } from './git_diff.js'
 import { safeJoin } from './paths.js'
@@ -211,6 +219,9 @@ export const tools: Record<string, ToolFn> = {
   definition: makeDefinitionTool(lsp),
   references: makeReferencesTool(lsp),
   hover: makeHoverTool(lsp),
+  rename_symbol: makeRenameSymbolTool(lsp),
+  format: makeFormatTool(lsp),
+  code_action: makeCodeActionTool(lsp),
   write_file,
   edit_file,
   multi_edit,

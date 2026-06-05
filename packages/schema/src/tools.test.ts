@@ -31,10 +31,40 @@ describe('tool policy', () => {
   })
 
   it('classifies side-effecting tools as side-effecting', () => {
-    for (const name of ['write_file', 'edit_file', 'multi_edit', 'bash', 'run_command', 'task'] as const) {
+    for (const name of [
+      'write_file',
+      'edit_file',
+      'multi_edit',
+      'bash',
+      'run_command',
+      'task',
+      'rename_symbol',
+      'format',
+      'code_action',
+    ] as const) {
       expect(classifyTool(name)).toBe('side-effecting')
       expect(isReadOnly(name)).toBe(false)
     }
+  })
+
+  it('classifies write-side LSP tools as side-effecting (gated like edits — R13/R15)', () => {
+    // rename_symbol / format / code_action all mutate files, so they route through
+    // the approval gate and stay off the auto-run read-only path.
+    for (const name of ['rename_symbol', 'format', 'code_action'] as const) {
+      expect(classifyTool(name)).toBe('side-effecting')
+      expect(isReadOnly(name)).toBe(false)
+      expect(READ_ONLY_TOOLS).not.toContain(name)
+    }
+  })
+
+  it('describes each write-side LSP tool as a review-gated, file-rewriting action', () => {
+    for (const name of ['rename_symbol', 'format', 'code_action'] as const) {
+      expect(TOOL_DESCRIPTIONS[name]).toMatch(/language server/i)
+      expect(TOOL_DESCRIPTIONS[name]).toMatch(/review|approval/i)
+    }
+    expect(TOOL_DESCRIPTIONS.rename_symbol).toMatch(/rename/i)
+    expect(TOOL_DESCRIPTIONS.format).toMatch(/format/i)
+    expect(TOOL_DESCRIPTIONS.code_action).toMatch(/code action|quick fix|refactor/i)
   })
 
   it('classifies ask_user as side-effecting (the gated/awaiting class — R11)', () => {
@@ -169,6 +199,18 @@ describe('validateToolArgs', () => {
       staged: true,
       path: 'src/a.ts',
     })
+    expect(validateToolArgs('rename_symbol', { path: 'src/a.ts', line: 4, character: 10, newName: 'count' })).toEqual({
+      path: 'src/a.ts',
+      line: 4,
+      character: 10,
+      newName: 'count',
+    })
+    expect(validateToolArgs('format', { path: 'src/a.ts' })).toEqual({ path: 'src/a.ts' })
+    expect(validateToolArgs('code_action', { path: 'src/a.ts', line: 4, character: 10 })).toEqual({
+      path: 'src/a.ts',
+      line: 4,
+      character: 10,
+    })
     expect(
       validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts', tools: ['read_file'] }),
     ).toEqual({
@@ -218,5 +260,14 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('ask_user', {})).toThrow()
     expect(() => validateToolArgs('git_diff', { staged: 'yes' })).toThrow()
     expect(() => validateToolArgs('git_diff', { path: '' })).toThrow()
+    expect(() => validateToolArgs('rename_symbol', { path: 'src/a.ts', line: 4, character: 10 })).toThrow() // missing newName
+    expect(() =>
+      validateToolArgs('rename_symbol', { path: 'src/a.ts', line: 4, character: 10, newName: '' }),
+    ).toThrow()
+    expect(() => validateToolArgs('rename_symbol', { path: 'src/a.ts', line: -1, character: 10, newName: 'x' })).toThrow()
+    expect(() => validateToolArgs('format', { path: '' })).toThrow()
+    expect(() => validateToolArgs('format', {})).toThrow()
+    expect(() => validateToolArgs('code_action', { path: 'src/a.ts', line: 1.5, character: 0 })).toThrow()
+    expect(() => validateToolArgs('code_action', { path: 'src/a.ts', line: 1 })).toThrow()
   })
 })

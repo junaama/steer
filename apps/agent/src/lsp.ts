@@ -24,12 +24,35 @@ export interface LspLocation {
   range: LspRange
 }
 
+/**
+ * The full new content the language server computed for one affected file. The
+ * write-side tools (rename/format/code_action) resolve a workspace edit down to
+ * one-or-more `{ path, newText }` entries; the covered helper layer applies them
+ * to disk (within the workspace guard) and surfaces before/after for diff-review.
+ */
+export interface LspEdit {
+  path: string
+  newText: string
+}
+
+/** A code action the server offers at a position, with its resolved edits. */
+export interface LspCodeAction {
+  title: string
+  edits: LspEdit[]
+}
+
 export interface LspClient {
   isEnabled(): boolean
   diagnostics(path: string): Promise<LspDiagnostic[]>
   definition(path: string, line: number, character: number): Promise<LspLocation[]>
   references(path: string, line: number, character: number): Promise<LspLocation[]>
   hover?(path: string, line: number, character: number): Promise<string | null>
+  /** Rename the symbol at a position to `newName`, returning the rewritten files. */
+  rename?(path: string, line: number, character: number, newName: string): Promise<LspEdit[]>
+  /** Format the file, returning its rewritten content (empty when already formatted). */
+  format?(path: string): Promise<LspEdit[]>
+  /** The code actions available at a position, each with resolved edits. */
+  codeActions?(path: string, line: number, character: number): Promise<LspCodeAction[]>
 }
 
 interface RpcResponse {
@@ -68,7 +91,32 @@ function disabledClient(): LspClient {
     definition: async () => [],
     references: async () => [],
     hover: async () => null,
+    rename: async () => [],
+    format: async () => [],
+    codeActions: async () => [],
   }
+}
+
+/** Apply a list of LSP `{ start, end, newText }` text edits to a buffer. */
+function applyTextEdits(text: string, edits: ServerTextEdit[]): string {
+  const lines = text.split('\n')
+  const offsetAt = (position: LspPosition): number => {
+    let offset = 0
+    for (let i = 0; i < position.line && i < lines.length; i += 1) offset += lines[i]!.length + 1
+    return offset + position.character
+  }
+  // Apply from the end of the document backwards so earlier offsets stay valid.
+  const ordered = [...edits].sort((a, b) => offsetAt(b.range.start) - offsetAt(a.range.start))
+  return ordered.reduce((acc, edit) => {
+    const start = offsetAt(edit.range.start)
+    const end = offsetAt(edit.range.end)
+    return acc.slice(0, start) + (edit.newText ?? '') + acc.slice(end)
+  }, text)
+}
+
+interface ServerTextEdit {
+  range: LspRange
+  newText?: string
 }
 
 function encodeMessage(payload: unknown): string {
@@ -161,6 +209,65 @@ class StdioLspClient implements LspClient {
       position: { line, character },
     })
     return hoverText(result)
+  }
+
+  async rename(path: string, line: number, character: number, newName: string): Promise<LspEdit[]> {
+    await this.openDocument(path)
+    const result = await this.request('textDocument/rename', {
+      textDocument: { uri: fileUri(path) },
+      position: { line, character },
+      newName,
+    })
+    return this.resolveWorkspaceEdit(result)
+  }
+
+  async format(path: string): Promise<LspEdit[]> {
+    await this.openDocument(path)
+    const result = await this.request('textDocument/formatting', {
+      textDocument: { uri: fileUri(path) },
+      options: { tabSize: 2, insertSpaces: true },
+    })
+    if (!Array.isArray(result)) return []
+    const edited = await this.applyServerEdits(path, result as ServerTextEdit[])
+    return edited === null ? [] : [{ path, newText: edited }]
+  }
+
+  async codeActions(path: string, line: number, character: number): Promise<LspCodeAction[]> {
+    await this.openDocument(path)
+    const result = await this.request('textDocument/codeAction', {
+      textDocument: { uri: fileUri(path) },
+      range: { start: { line, character }, end: { line, character } },
+      context: { diagnostics: [] },
+    })
+    if (!Array.isArray(result)) return []
+    const actions: LspCodeAction[] = []
+    for (const item of result) {
+      if (!isObject(item)) continue
+      const title = typeof item.title === 'string' ? item.title : 'code action'
+      const edits = await this.resolveWorkspaceEdit(item.edit)
+      if (edits.length > 0) actions.push({ title, edits })
+    }
+    return actions
+  }
+
+  /** Read each file a server text-edit set touches and return its rewritten content. */
+  private async applyServerEdits(path: string, edits: ServerTextEdit[]): Promise<string | null> {
+    if (edits.length === 0) return null
+    const before = await readFile(path, 'utf8')
+    return applyTextEdits(before, edits)
+  }
+
+  /** Resolve an LSP WorkspaceEdit (`changes` map) into per-file rewritten content. */
+  private async resolveWorkspaceEdit(edit: unknown): Promise<LspEdit[]> {
+    if (!isObject(edit) || !isObject(edit.changes)) return []
+    const out: LspEdit[] = []
+    for (const [uri, raw] of Object.entries(edit.changes)) {
+      if (!Array.isArray(raw)) continue
+      const filePath = pathFromUri(uri)
+      const edited = await this.applyServerEdits(filePath, raw as ServerTextEdit[])
+      if (edited !== null) out.push({ path: filePath, newText: edited })
+    }
+    return out
   }
 
   private async ensureStarted(): Promise<void> {
