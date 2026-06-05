@@ -122,6 +122,29 @@ describe('buildContext', () => {
     ])
   })
 
+  it('projects an ask_user question + the operator answer into the thread (R11, AE4)', () => {
+    // The agent asked a question (a non-context `question` event), recorded the
+    // answer as the ask_user tool_result, and the operator's `user_message` carries
+    // it. The model must see both the answer (as a user turn) and the tool result —
+    // so the next turn acts on the clarification instead of re-asking or guessing.
+    const msgs = buildContext('deploy the app', [
+      ev(0, 'message', { text: 'I need to know the target environment' }),
+      ev(1, 'tool_proposed', { toolCallId: 'ask1', name: 'ask_user', kind: 'side-effecting', args: { question: 'Which environment?' } }),
+      ev(2, 'question', { toolCallId: 'ask1', question: 'Which environment?' }),
+      ev(3, 'user_message', { text: 'production' }),
+      ev(4, 'tool_result', { toolCallId: 'ask1', name: 'ask_user', result: 'production' }),
+    ])
+    // The `question` and `tool_proposed` events are non-context (the UI surfaces
+    // the question); the answer reaches the model as a user turn AND as the
+    // ask_user tool result, in log order.
+    expect(msgs).toEqual([
+      { role: 'user', content: 'deploy the app' },
+      { role: 'assistant', content: 'I need to know the target environment' },
+      { role: 'user', content: 'production' },
+      { role: 'user', content: '[tool ask_user result]\nproduction' },
+    ])
+  })
+
   it('projects a substitution as the executed tool with a system note (no extra inference)', () => {
     const msgs = buildContext(null, [
       ev(0, 'tool_proposed', { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: {} }),

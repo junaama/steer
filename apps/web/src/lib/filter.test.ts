@@ -27,6 +27,11 @@ describe('filterSessions', () => {
     expect(filterSessions(list, '', 'running').map((x) => x.id).sort()).toEqual(['1', '5'])
   })
 
+  it('treats awaiting-input as live work under the running filter (R11)', () => {
+    const withWaiting = [...list, s('6', 'Clarify path', 'awaiting-input')]
+    expect(filterSessions(withWaiting, '', 'running').map((x) => x.id).sort()).toEqual(['1', '5', '6'])
+  })
+
   it('matches exact status for other filters', () => {
     expect(filterSessions(list, '', 'completed').map((x) => x.id)).toEqual(['2'])
     expect(filterSessions(list, '', 'error').map((x) => x.id)).toEqual(['4'])

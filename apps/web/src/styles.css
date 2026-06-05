@@ -762,6 +762,28 @@ textarea {
   cursor: not-allowed;
 }
 
+/* The agent's pending ask_user question (R11) — surfaced prominently above the
+   composer so the operator sees the run is waiting on THEM, not idle. */
+.question-prompt {
+  margin: 0 28px 4px;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+  border: 1px solid var(--st-pending);
+  border-radius: var(--r-md);
+}
+.qp-question {
+  margin: 6px 0 10px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.qp-answer {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+}
+
 .jumplive {
   position: absolute;
   left: 50%;

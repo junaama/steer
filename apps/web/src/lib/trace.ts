@@ -64,6 +64,37 @@ export function latestPlan(events: readonly RawEvent[]): PlanItem[] | null {
   return null
 }
 
+/** A clarifying question the agent is currently waiting on (R11). */
+export interface PendingQuestion {
+  toolCallId: string
+  question: string
+}
+
+/**
+ * The agent's pending `ask_user` question, if any — a `question` event whose
+ * asking `ask_user` call has no `tool_result` yet (the answer hasn't landed). Once
+ * answered, the `tool_result` clears it. Returns the latest still-open question, or
+ * null. Pure projection of the synced log, so the UI re-derives it on every sync.
+ */
+export function pendingQuestion(events: readonly RawEvent[]): PendingQuestion | null {
+  const answered = new Set<string>()
+  for (const e of events) {
+    if (e.type !== 'tool_result') continue
+    const id = e.payload.toolCallId
+    if (typeof id === 'string') answered.add(id)
+  }
+  const sorted = [...events].sort((a, b) => b.seq - a.seq)
+  for (const e of sorted) {
+    if (e.type !== 'question') continue
+    const toolCallId = e.payload.toolCallId
+    const question = e.payload.question
+    if (typeof toolCallId !== 'string' || typeof question !== 'string') continue
+    if (answered.has(toolCallId)) continue
+    return { toolCallId, question }
+  }
+  return null
+}
+
 /**
  * Project the append-only event log into renderable trace items. Tool events
  * sharing a toolCallId fold into one card whose status is the latest terminal.

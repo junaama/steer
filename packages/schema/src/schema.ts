@@ -11,6 +11,12 @@ export const SESSION_STATUSES = [
   'starting',
   'running',
   'awaiting-approval',
+  // The agent called `ask_user` and is parked waiting for the operator to answer
+  // its clarifying question (R11). Like 'awaiting-approval' it is a runnable state
+  // the daemon resumes after a crash — the question/answer live in the event log,
+  // so resuming re-reaches the wait rather than losing it. `last_status` is plain
+  // text (no DB CHECK constraint), so adding this needs no migration.
+  'awaiting-input',
   'interrupted',
   'completed',
   'error',
@@ -33,6 +39,11 @@ export const EVENT_TYPES = [
   'tool_result',
   'tool_cancelled',
   'tool_substituted',
+  // The agent asked the operator a clarifying question via `ask_user` (R11). Carries
+  // the question text + the asking tool call's id so the UI surfaces it and an
+  // answer (a `user_message`) can be tied back. Non-terminal: it does not count
+  // toward the step cursor (the `ask_user` tool_result is what advances the turn).
+  'question',
   'subagent_started',
   'subagent_result',
   'plan',

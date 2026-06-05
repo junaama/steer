@@ -13,7 +13,7 @@ export interface SessionView {
 
 export type FilterId = 'all' | 'running' | 'interrupted' | 'completed' | 'error'
 
-const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval']
+const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval', 'awaiting-input']
 
 /** Narrow the session list by title query and status filter (pure). */
 export function filterSessions(list: readonly SessionView[], query: string, filter: FilterId): SessionView[] {

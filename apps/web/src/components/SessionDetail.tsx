@@ -1,13 +1,14 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { SessionStatus } from '@steer/schema'
-import type { PlanItem, TraceItem, ToolItem } from '../lib/trace.js'
+import type { PlanItem, TraceItem, ToolItem, PendingQuestion } from '../lib/trace.js'
 import { StatusPill } from './StatusPill.js'
 import { ToolCard } from './ToolCard.js'
 import { TodoPanel } from './TodoPanel.js'
 import { Markdown } from './Markdown.js'
+import { QuestionPrompt } from './QuestionPrompt.js'
 
-const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval']
+const LIVE: SessionStatus[] = ['running', 'starting', 'awaiting-approval', 'awaiting-input']
 
 const ROLE_LABEL: Record<'message' | 'thinking' | 'user', string> = {
   message: 'assistant',
@@ -71,6 +72,10 @@ export interface SessionDetailProps {
   onContinue: () => void
   /** Send a follow-up message to the session (re-queues the agent). */
   onSendMessage?: (text: string) => Promise<void>
+  /** The agent's pending `ask_user` question (R11); shown as a prominent answer prompt. */
+  pendingQuestion?: PendingQuestion | null
+  /** Answer the pending question (sends a user_message the parked agent resumes on). */
+  onAnswer?: (text: string) => Promise<void>
   /** U11 injects per-tool interception controls; omitted here. */
   renderToolControls?: (tool: ToolItem) => ReactNode
 }
@@ -166,6 +171,9 @@ export function SessionDetail(props: SessionDetailProps): JSX.Element {
             )}
           </div>
         </div>
+        {props.pendingQuestion && props.onAnswer && (
+          <QuestionPrompt question={props.pendingQuestion} onAnswer={props.onAnswer} />
+        )}
         <div className="composer">
           <textarea
             className="composer-input"

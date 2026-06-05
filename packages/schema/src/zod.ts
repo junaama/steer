@@ -68,6 +68,10 @@ export const eventPayloadSchemas = {
   tool_result: childToolRef.extend({ result: z.string(), edited: z.boolean().optional() }),
   tool_cancelled: childToolRef.extend({ reason: z.string().optional() }),
   tool_substituted: childToolRef.extend({ from: z.string().min(1), result: z.string() }),
+  // The agent's clarifying question (R11) tied to the asking `ask_user` tool call
+  // by its id, so the UI can surface it and an operator answer routes back to that
+  // call. Only the id + question (not the tool `name`) is needed to render it.
+  question: z.object({ toolCallId: z.string().min(1), question: z.string().min(1) }).merge(childTag),
   subagent_started: z.object({
     parentToolCallId: z.string().min(1),
     description: z.string(),

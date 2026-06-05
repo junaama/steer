@@ -36,6 +36,21 @@ describe('tool policy', () => {
     }
   })
 
+  it('classifies ask_user as side-effecting (the gated/awaiting class — R11)', () => {
+    // ask_user blocks the run waiting for an operator answer; classifying it
+    // side-effecting keeps it off the auto-run read-only path. The loop gives it a
+    // dedicated question→answer branch rather than the approve/reject gate.
+    expect(classifyTool('ask_user')).toBe('side-effecting')
+    expect(isReadOnly('ask_user')).toBe(false)
+    // It is NOT swap-eligible (a substitute tool must be read-only — INT-R6).
+    expect(READ_ONLY_TOOLS).not.toContain('ask_user')
+  })
+
+  it('describes ask_user as a clarify-and-wait tool that does not guess', () => {
+    expect(TOOL_DESCRIPTIONS.ask_user).toMatch(/wait/i)
+    expect(TOOL_DESCRIPTIONS.ask_user).toMatch(/never guess|guess/i)
+  })
+
   it('defaults unknown tools to side-effecting (the safe, gated class)', () => {
     expect(classifyTool('rm_rf_everything')).toBe('side-effecting')
     expect(isReadOnly('totally_unknown')).toBe(false)
@@ -133,6 +148,7 @@ describe('validateToolArgs', () => {
       description: 'Inspect',
       prompt: 'Read src/index.ts',
     })
+    expect(validateToolArgs('ask_user', { question: 'Which folder?' })).toEqual({ question: 'Which folder?' })
     expect(
       validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts', tools: ['read_file'] }),
     ).toEqual({
@@ -178,5 +194,7 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('task', { description: 'Inspect', prompt: 'Read', tools: [''] })).toThrow()
     expect(() => validateToolArgs('todo_write', { items: [{ text: 'x', status: 'blocked' }] })).toThrow()
     expect(() => validateToolArgs('todo_write', { items: [{ status: 'pending' }] })).toThrow()
+    expect(() => validateToolArgs('ask_user', { question: '' })).toThrow()
+    expect(() => validateToolArgs('ask_user', {})).toThrow()
   })
 })

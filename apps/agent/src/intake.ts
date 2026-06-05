@@ -19,9 +19,11 @@ export interface SessionIntent {
 
 // 'starting' = a fresh task; 'running' = a crashed run to resume (it replays in
 // the shape's reconnect snapshot); 'awaiting-approval' = a run that crashed while
-// blocked at the approval gate — resume so it re-reaches the gate. Everything else
+// blocked at the approval gate — resume so it re-reaches the gate; 'awaiting-input'
+// = a run that crashed while blocked on an `ask_user` question — resume so it
+// re-reaches the wait and re-finds any answer already given (R11). Everything else
 // is terminal/idle — ignore it.
-const RUNNABLE = new Set<SessionStatus>(['starting', 'running', 'awaiting-approval'])
+const RUNNABLE = new Set<SessionStatus>(['starting', 'running', 'awaiting-approval', 'awaiting-input'])
 
 /**
  * Pure projection of a batch of Electric messages to the sessions that should

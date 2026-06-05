@@ -183,6 +183,39 @@ describe('SessionDetail', () => {
     })
   })
 
+  describe('ask_user question prompt (R11, AE4)', () => {
+    it('renders the pending question with an answer input when awaiting-input', () => {
+      setup('awaiting-input', {
+        pendingQuestion: { toolCallId: 'ask1', question: 'Which folder holds the README?' },
+        onAnswer: vi.fn(async () => {}),
+      })
+      expect(screen.getByTestId('question-prompt')).toBeInTheDocument()
+      expect(screen.getByText('Which folder holds the README?')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Type your answer…')).toBeInTheDocument()
+    })
+
+    it('sends the answer through onAnswer (a user_message the parked agent resumes on)', async () => {
+      const onAnswer = vi.fn(async () => {})
+      setup('awaiting-input', {
+        pendingQuestion: { toolCallId: 'ask1', question: 'Which env?' },
+        onAnswer,
+      })
+      fireEvent.change(screen.getByPlaceholderText('Type your answer…'), { target: { value: 'production' } })
+      fireEvent.click(screen.getByText('Answer'))
+      await vi.waitFor(() => expect(onAnswer).toHaveBeenCalledWith('production'))
+    })
+
+    it('shows no question prompt when there is no pending question', () => {
+      setup('running')
+      expect(screen.queryByTestId('question-prompt')).not.toBeInTheDocument()
+    })
+
+    it('shows no question prompt without an onAnswer handler even if a question is set', () => {
+      setup('awaiting-input', { pendingQuestion: { toolCallId: 'ask1', question: 'Which env?' } })
+      expect(screen.queryByTestId('question-prompt')).not.toBeInTheDocument()
+    })
+  })
+
   it('renders an empty trace without rows or a live tail', () => {
     setup('running', { items: [] })
     // No trace rows, and the live tail is suppressed for an empty transcript.

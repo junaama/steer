@@ -20,6 +20,7 @@ async function readBefore(root: string, path: string): Promise<string> {
 
 const FILE_MUTATING_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit'])
 const PLAN_TOOL = 'todo_write'
+const ASK_USER_TOOL = 'ask_user'
 
 async function fileMutationPreview(root: string, name: string, args: Record<string, unknown>): Promise<
   { before: string; after: string } | undefined
@@ -148,6 +149,8 @@ export class FakeStreamingModel implements ModelDriver {
 
 const TERMINAL_TYPES = new Set(['thinking', 'message', 'tool_result', 'tool_cancelled', 'tool_substituted'])
 const DEFAULT_MAX_STEPS = 80
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Coarse delta flush: buffer streamed chunks and emit a `*_delta` row only on a
 // natural boundary (newline or sentence-ender) or once the buffer reaches this
@@ -349,7 +352,7 @@ export interface RunOptions {
 }
 
 /** Outcome of handling one tool call in a turn's batch — directs the loop. */
-type ToolOutcome = 'continue' | 'interrupted' | 'no-progress'
+type ToolOutcome = 'continue' | 'interrupted' | 'no-progress' | 'aborted'
 
 /**
  * Run a session to completion (or until interrupted). The agent keeps no private
@@ -429,21 +432,20 @@ export async function runSession(
 
     // Execute the turn's tool-call batch sequentially through the gate. Each
     // side-effecting call still hits the approval gate (R15); read-only calls run
-    // immediately. A no-progress repeat or an interrupt ends the run.
-    let stopped: 'interrupted' | 'no-progress' | null = null
+    // immediately. A no-progress repeat, an interrupt, or a run-level abort
+    // (daemon shutdown while parked on an ask_user question) ends the loop.
+    let stopped = false
     for (const call of decision.toolCalls) {
       const outcome = await handleToolCall(store, sessionId, call, options, maxSteps, allowlist)
-      if (outcome === 'interrupted') {
-        stopped = 'interrupted'
-        break
-      }
-      if (outcome === 'no-progress') {
-        stopped = 'no-progress'
+      // 'aborted' = the signal fired (daemon shutting down) while parked on an
+      // ask_user wait — exit WITHOUT changing status so the run stays runnable and
+      // a resume re-reaches the wait (crash-only resume; the answer is never lost).
+      if (outcome === 'interrupted' || outcome === 'no-progress' || outcome === 'aborted') {
+        stopped = true
         break
       }
     }
-    if (stopped === 'interrupted') return
-    if (stopped === 'no-progress') return
+    if (stopped) return
   }
 }
 
@@ -480,6 +482,15 @@ async function handleToolCall(
   allowlist: Set<string>,
 ): Promise<ToolOutcome> {
   const visibleEvents = parentEvents(await store.listEvents(sessionId))
+
+  // ask_user (R11): pause and wait for the operator's answer instead of guessing.
+  // It takes a DEDICATED branch, not the approve/reject gate — the operator
+  // answers the question, they don't approve a side effect. The question + answer
+  // live in the event log (crash-safe), and the answer projects into the next
+  // turn's context (context.ts), so the model sees it without extra plumbing.
+  if (call.name === ASK_USER_TOOL) {
+    return askUser(store, sessionId, call, options)
+  }
 
   // No-progress guard: a model re-proposing the same call after it returned the
   // same result REPEAT_LIMIT times is stuck — stop with an explanation instead
@@ -553,6 +564,128 @@ async function handleToolCall(
   if (call.name === PLAN_TOOL) await reconcilePlanFromTool(store, sessionId, call)
   if (gated) await store.setStatus(sessionId, 'running')
   return 'continue'
+}
+
+/**
+ * The seq of the `question` event already emitted for this `ask_user` call, or
+ * undefined if none. Used to make the wait idempotent across a crash-resume: the
+ * resumed run reuses the original question's seq, so an answer the operator gave
+ * before the crash (a `user_message` after that seq) is still recognized.
+ */
+export function questionSeqFor(events: readonly StoredEvent[], toolCallId: string): number | undefined {
+  for (const e of events) {
+    if (e.type === 'question' && (e.payload as { toolCallId?: unknown }).toolCallId === toolCallId) {
+      return e.seq
+    }
+  }
+  return undefined
+}
+
+/**
+ * The first `user_message` whose seq is strictly after `afterSeq` — the operator's
+ * answer to a question posed at `afterSeq`. Returns its text, or undefined while no
+ * answer has arrived. Keyed off seq (not "latest message") so a follow-up sent
+ * BEFORE the question can't be mistaken for the answer, and so a crash-resumed wait
+ * still finds the answer the operator already gave.
+ */
+export function findAnswerAfter(events: readonly StoredEvent[], afterSeq: number): string | undefined {
+  for (const e of events) {
+    if (e.seq > afterSeq && e.type === 'user_message') {
+      return String((e.payload as { text?: unknown }).text ?? '')
+    }
+  }
+  return undefined
+}
+
+/**
+ * ask_user (R11, AE4): emit the question, park the session 'awaiting-input', and
+ * BLOCK until the operator answers (a `user_message`) — never guessing, never
+ * giving up. The answer carrier is a `user_message`, reusing the existing
+ * follow-up-message machinery: the server's `/sessions/:id/message` endpoint
+ * already appends it and re-queues the session, the web composer already sends it,
+ * and `context.ts` already projects it as a user turn — so the answer reaches the
+ * model with no new control type and no server change. An interrupt still halts
+ * the wait (no deadlock). The question + answer live in the event log, so a crash
+ * mid-wait resumes here and re-finds the answer instead of losing it.
+ */
+async function askUser(
+  store: AgentStore,
+  sessionId: string,
+  call: ToolCall,
+  options: RunOptions,
+): Promise<ToolOutcome> {
+  // Idempotent by toolCallId so a crash-resumed wait reuses the SAME question seq
+  // (and therefore still recognizes an answer the operator already gave) instead
+  // of re-asking at a higher seq the prior answer would fall before. The question
+  // is appended only the first time this call is reached.
+  const existingQuestionSeq = questionSeqFor(await store.listEvents(sessionId), call.toolCallId)
+  let questionSeq: number
+  if (existingQuestionSeq !== undefined) {
+    questionSeq = existingQuestionSeq
+  } else {
+    const question = askUserQuestion(call.args)
+    await store.appendEvent(sessionId, 'tool_proposed', {
+      toolCallId: call.toolCallId,
+      name: call.name,
+      kind: classifyTool(call.name),
+      args: call.args,
+    })
+    // A malformed ask_user (e.g. an empty question) can't be answered — surface it
+    // as a tool error and continue rather than parking on a question nobody can see.
+    if (question === undefined) {
+      await store.appendEvent(sessionId, 'tool_result', {
+        toolCallId: call.toolCallId,
+        name: call.name,
+        result: 'error: ask_user requires a non-empty question',
+      })
+      return 'continue'
+    }
+    questionSeq = await store.appendEvent(sessionId, 'question', {
+      toolCallId: call.toolCallId,
+      question,
+    })
+  }
+  await store.setStatus(sessionId, 'awaiting-input')
+
+  const pollMs = options.pollMs ?? 200
+  for (;;) {
+    // Daemon shutdown: stop polling and leave the session 'awaiting-input' so a
+    // resume re-enters this wait (the question/answer live in the log).
+    if (options.signal?.aborted) return 'aborted'
+    const controls = await store.listUnconsumedControls(sessionId)
+    const interrupt = controls.find((c) => c.type === 'interrupt')
+    if (interrupt) {
+      await store.consumeControl(interrupt.id)
+      const events = await store.listEvents(sessionId)
+      const atSeq = events.length > 0 ? events[events.length - 1]!.seq : 0
+      await store.appendEvent(sessionId, 'interrupted', { atSeq })
+      await store.setStatus(sessionId, 'interrupted')
+      return 'interrupted'
+    }
+    const answer = findAnswerAfter(await store.listEvents(sessionId), questionSeq)
+    if (answer !== undefined) {
+      // Record the answer as the ask_user tool_result so the asking call has a
+      // coherent outcome in the thread; the `user_message` itself carries it into
+      // the model context. Flip back to running and continue the loop.
+      await store.appendEvent(sessionId, 'tool_result', {
+        toolCallId: call.toolCallId,
+        name: call.name,
+        result: answer,
+      })
+      await store.setStatus(sessionId, 'running')
+      return 'continue'
+    }
+    await sleep(pollMs)
+  }
+}
+
+/** The validated ask_user question, or undefined when the args are malformed. */
+function askUserQuestion(args: Record<string, unknown>): string | undefined {
+  try {
+    return (validateToolArgs(ASK_USER_TOOL, args) as { question: string }).question
+  } catch {
+    return undefined
+  }
 }
 
 /**

@@ -55,6 +55,23 @@ describe('event payloads', () => {
     expect(parseEventPayload('tool_proposed', p)).toEqual(p)
   })
 
+  it('round-trips a valid question payload (ask_user, R11)', () => {
+    const p = { toolCallId: 'tc1', question: 'Which environment should I deploy to?' }
+    expect(parseEventPayload('question', p)).toEqual(p)
+  })
+
+  it('rejects a question payload missing the question text', () => {
+    expect(() => parseEventPayload('question', { toolCallId: 'tc1' })).toThrow()
+  })
+
+  it('rejects a question payload with an empty question', () => {
+    expect(() => parseEventPayload('question', { toolCallId: 'tc1', question: '' })).toThrow()
+  })
+
+  it('rejects a question payload missing the toolCallId', () => {
+    expect(() => parseEventPayload('question', { question: 'where?' })).toThrow()
+  })
+
   it('round-trips subagent lifecycle payloads', () => {
     expect(
       parseEventPayload('subagent_started', {

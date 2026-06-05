@@ -46,6 +46,7 @@ export const toolArgSchemas = {
     prompt: z.string().min(1),
     tools: z.array(z.string().min(1)).optional(),
   }),
+  ask_user: z.object({ question: z.string().min(1) }),
 } as const
 
 export type ToolName = keyof typeof toolArgSchemas
@@ -69,6 +70,11 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   bash: 'side-effecting',
   run_command: 'side-effecting',
   task: 'side-effecting',
+  // ask_user blocks the run waiting for an operator answer — the same "gated /
+  // awaiting" class as a side-effecting tool. It is NOT approved/rejected at the
+  // generic gate; the loop gives it a dedicated question→answer branch (R11),
+  // but classifying it side-effecting keeps it out of the auto-run read-only path.
+  ask_user: 'side-effecting',
 }
 
 export const READ_ONLY_TOOLS: ToolName[] = (Object.keys(TOOL_POLICY) as ToolName[]).filter(
@@ -106,6 +112,10 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     'running build/test commands, and anything the dedicated tools do not cover.',
   run_command: 'Run a project command (build/test/lint) with an optional timeout and capture its output.',
   task: 'Delegate a bounded sub-task to a scoped child agent with a chosen subset of tools.',
+  ask_user:
+    'Ask the operator ONE targeted clarifying question and WAIT for their answer before continuing. ' +
+    'Use this when a needed detail is genuinely missing or ambiguous — never guess or give up. ' +
+    'The run pauses until the operator replies; their answer arrives as the next message in the thread.',
 }
 
 export function isToolName(name: string): name is ToolName {

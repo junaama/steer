@@ -138,6 +138,18 @@ export const todo_write: ToolFn = async (args) => {
   return `Updated plan · ${items.length} items`
 }
 
+/**
+ * Clarify tool (R11). The loop intercepts `ask_user` in a dedicated branch that
+ * emits the question, parks the session 'awaiting-input', and waits for the
+ * operator's answer (see loop.ts `awaitAnswer`). This impl is only the fallback
+ * path — it validates args and echoes the question — so the tool registry stays
+ * complete and direct dispatch never throws.
+ */
+export const ask_user: ToolFn = async (args) => {
+  const { question } = validateToolArgs('ask_user', args) as { question: string }
+  return `Asked the operator: ${question}`
+}
+
 export const task: ToolFn = async (args, ctx) => {
   const { description, prompt, tools: requestedTools } = validateToolArgs('task', args) as {
     description: string
@@ -204,6 +216,7 @@ export const tools: Record<string, ToolFn> = {
   bash,
   run_command,
   task,
+  ask_user,
 }
 
 export { edit_file, multi_edit, run_command }

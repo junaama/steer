@@ -11,6 +11,7 @@ export const SESSION_STATUS_META: Record<SessionStatus, StatusMeta> = {
   starting: { label: 'connecting', color: 'var(--st-running)' },
   running: { label: 'running', color: 'var(--st-running)' },
   'awaiting-approval': { label: 'awaiting approval', color: 'var(--st-pending)' },
+  'awaiting-input': { label: 'awaiting answer', color: 'var(--st-pending)' },
   interrupted: { label: 'interrupted', color: 'var(--st-pending)' },
   completed: { label: 'completed', color: 'var(--st-done)' },
   error: { label: 'error', color: 'var(--st-error)' },

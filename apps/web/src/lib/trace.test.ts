@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTrace, latestPlan, type RawEvent, type ToolItem } from './trace.js'
+import { buildTrace, latestPlan, pendingQuestion, type RawEvent, type ToolItem } from './trace.js'
 
 const ev = (seq: number, type: RawEvent['type'], payload: Record<string, unknown>): RawEvent => ({ seq, type, payload })
 
@@ -338,5 +338,49 @@ describe('latestPlan', () => {
 
   it('returns null for a malformed plan payload', () => {
     expect(latestPlan([ev(0, 'plan', {})])).toBeNull()
+  })
+})
+
+describe('pendingQuestion', () => {
+  it('returns null when no question event is present', () => {
+    expect(pendingQuestion([ev(0, 'message', { text: 'hi' })])).toBeNull()
+  })
+
+  it('returns an open question whose ask_user call has no tool_result yet (R11)', () => {
+    const events = [
+      ev(0, 'tool_proposed', { toolCallId: 'ask1', name: 'ask_user', kind: 'side-effecting', args: { question: 'Which env?' } }),
+      ev(1, 'question', { toolCallId: 'ask1', question: 'Which env?' }),
+    ]
+    expect(pendingQuestion(events)).toEqual({ toolCallId: 'ask1', question: 'Which env?' })
+  })
+
+  it('clears the question once its ask_user call has a tool_result (answered)', () => {
+    const events = [
+      ev(0, 'question', { toolCallId: 'ask1', question: 'Which env?' }),
+      ev(1, 'tool_result', { toolCallId: 'ask1', name: 'ask_user', result: 'production' }),
+    ]
+    expect(pendingQuestion(events)).toBeNull()
+  })
+
+  it('returns the latest still-open question when several were asked', () => {
+    const events = [
+      ev(0, 'question', { toolCallId: 'ask1', question: 'first?' }),
+      ev(1, 'tool_result', { toolCallId: 'ask1', name: 'ask_user', result: 'a' }),
+      ev(2, 'question', { toolCallId: 'ask2', question: 'second?' }),
+    ]
+    expect(pendingQuestion(events)).toEqual({ toolCallId: 'ask2', question: 'second?' })
+  })
+
+  it('ignores a malformed question payload (missing fields)', () => {
+    expect(pendingQuestion([ev(0, 'question', { toolCallId: 'ask1' })])).toBeNull()
+    expect(pendingQuestion([ev(0, 'question', { question: 'orphan' })])).toBeNull()
+  })
+
+  it('ignores a tool_result with a non-string toolCallId when computing answers', () => {
+    const events = [
+      ev(0, 'question', { toolCallId: 'ask1', question: 'still open?' }),
+      ev(1, 'tool_result', { name: 'grep', result: 'x' }),
+    ]
+    expect(pendingQuestion(events)).toEqual({ toolCallId: 'ask1', question: 'still open?' })
   })
 })

@@ -15,6 +15,8 @@ import {
   completedSteps,
   isNoProgressRepeat,
   findCachedWebFetch,
+  findAnswerAfter,
+  questionSeqFor,
   latestPlan,
   planMarkedAllDone,
   type ScriptedTurn,
@@ -687,6 +689,132 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
+  it('asks a question, parks awaiting-input, waits for the operator answer, then resumes (AE4, R11)', async () => {
+    const id = await newSession()
+    const question = 'Which folder holds the README?'
+    const script: ScriptedTurn[] = [
+      { reasoning: 'I do not know the folder', toolCalls: [{ toolCallId: 'ask1', name: 'ask_user', args: { question } }] },
+      say('found it in dev/yourai'),
+    ]
+    const p = runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    // The loop must PARK on the question and NOT advance until an answer arrives.
+    for (let i = 0; i < 200 && (await status(id)) !== 'awaiting-input'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-input')
+    const parked = await store.listEvents(id)
+    // The question is emitted; no ask_user tool_result yet (the run is blocked).
+    const questionEvent = parked.find((e) => e.type === 'question')!.payload as { toolCallId: string; question: string }
+    expect(questionEvent).toEqual({ toolCallId: 'ask1', question })
+    expect(parked.some((e) => e.type === 'tool_proposed')).toBe(true)
+    expect(parked.some((e) => e.type === 'tool_result')).toBe(false)
+    // The follow-up reply has not been sent, so the run is still parked.
+    expect(await status(id)).toBe('awaiting-input')
+
+    // Operator answers via the SAME carrier the web composer uses — a user_message.
+    await store.appendEvent(id, 'user_message', { text: 'dev/yourai' })
+    await p
+
+    const events = await store.listEvents(id)
+    // The answer is recorded as the ask_user tool_result; the run then completes.
+    const answerResult = events.find((e) => e.type === 'tool_result')!.payload as { name: string; result: string }
+    expect(answerResult).toMatchObject({ name: 'ask_user', result: 'dev/yourai' })
+    expect(types(events)).toEqual(['thinking', 'tool_proposed', 'question', 'user_message', 'tool_result', 'message'])
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('does not treat a follow-up sent BEFORE the question as the answer (seq-keyed)', async () => {
+    const id = await newSession()
+    // A pre-existing user_message must NOT be mistaken for the answer — the loop
+    // must still park and wait for a reply that comes AFTER the question.
+    await store.appendEvent(id, 'user_message', { text: 'stale message before any question' })
+    const script: ScriptedTurn[] = [
+      { toolCalls: [{ toolCallId: 'ask1', name: 'ask_user', args: { question: 'real question?' } }] },
+      say('done'),
+    ]
+    const p = runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    for (let i = 0; i < 200 && (await status(id)) !== 'awaiting-input'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-input')
+    // Still parked — the stale pre-question message did not answer it.
+    await sleep(30)
+    expect(await status(id)).toBe('awaiting-input')
+    expect((await store.listEvents(id)).some((e) => e.type === 'tool_result')).toBe(false)
+    // A real answer after the question resumes the run.
+    await store.appendEvent(id, 'user_message', { text: 'the real answer' })
+    await p
+    const result = (await store.listEvents(id)).find((e) => e.type === 'tool_result')!.payload as { result: string }
+    expect(result.result).toBe('the real answer')
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('surfaces a malformed ask_user (empty question) as a tool error and does not park', async () => {
+    const id = await newSession()
+    // An empty question can't be answered — it must not park the run forever.
+    const script: ScriptedTurn[] = [
+      { toolCalls: [{ toolCallId: 'ask1', name: 'ask_user', args: { question: '' } }] },
+      say('moved on'),
+    ]
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+
+    const events = await store.listEvents(id)
+    expect(events.some((e) => e.type === 'question')).toBe(false)
+    const result = events.find((e) => e.type === 'tool_result')!.payload as { result: string }
+    expect(result.result).toMatch(/^error: ask_user requires/)
+    // The run did not deadlock — it continued to the next turn and completed.
+    expect(await status(id)).toBe('completed')
+  })
+
+  it('halts a run that is awaiting an ask_user answer when an interrupt arrives (no deadlock)', async () => {
+    const id = await newSession()
+    const script: ScriptedTurn[] = [
+      { toolCalls: [{ toolCallId: 'ask1', name: 'ask_user', args: { question: 'which one?' } }] },
+      say('unreached'),
+    ]
+    const p = runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    for (let i = 0; i < 200 && (await status(id)) !== 'awaiting-input'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-input')
+    // Interrupt while awaiting the answer — the wait must end, not deadlock.
+    await db.insert(controls).values({ id: randomUUID(), sessionId: id, type: 'interrupt', payload: {} })
+    await p
+    expect(await status(id)).toBe('interrupted')
+    const events = await store.listEvents(id)
+    expect(events.some((e) => e.type === 'interrupted')).toBe(true)
+    // No answer was given, so the ask_user call never produced a tool_result.
+    expect(events.some((e) => e.type === 'tool_result')).toBe(false)
+  })
+
+  it('resumes an awaiting-input run from the log and finds an answer already given (crash-resume)', async () => {
+    const id = await newSession()
+    const question = 'target env?'
+    const script: ScriptedTurn[] = [
+      { toolCalls: [{ toolCallId: 'ask1', name: 'ask_user', args: { question } }] },
+      say('resumed and finished'),
+    ]
+    // First run parks on the question; simulate a crash by aborting the run while
+    // it is awaiting-input (the question + status live in the log).
+    const ac = new AbortController()
+    const first = runSession(store, new FakeStreamingModel(script), id, {
+      workspaceRoot: workspace,
+      tools,
+      pollMs: 5,
+      signal: ac.signal,
+    })
+    for (let i = 0; i < 200 && (await status(id)) !== 'awaiting-input'; i++) await sleep(5)
+    expect(await status(id)).toBe('awaiting-input')
+    ac.abort()
+    await first
+
+    // The operator answers while the daemon is down.
+    await store.appendEvent(id, 'user_message', { text: 'staging' })
+
+    // A fresh run (resume) recomputes from the log, re-reaches the wait, finds the
+    // answer already present, and finishes — the answer was never lost.
+    await runSession(store, new FakeStreamingModel(script), id, { workspaceRoot: workspace, tools, pollMs: 5 })
+    const events = await store.listEvents(id)
+    const result = events.filter((e) => e.type === 'tool_result').at(-1)!.payload as { name: string; result: string }
+    expect(result).toMatchObject({ name: 'ask_user', result: 'staging' })
+    expect(await status(id)).toBe('completed')
+  })
+
   it('halts mid-tool when an interrupt arrives during execution', async () => {
     const id = await newSession()
     const slow: ToolFn = (_a, ctx) =>
@@ -896,6 +1024,54 @@ describe('runSession web_fetch dedup', () => {
     expect(results[0]).toBe(`content of ${fetchUrl}`)
     expect(results[1]).toBe(`content of ${fetchUrl}`)
     expect(await status(id)).toBe('completed')
+  })
+})
+
+describe('findAnswerAfter', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+
+  it('returns the text of the first user_message after the given seq', () => {
+    const events = [
+      sev(0, 'question', { toolCallId: 'a1', question: 'which?' }),
+      sev(1, 'user_message', { text: 'this one' }),
+    ]
+    expect(findAnswerAfter(events, 0)).toBe('this one')
+  })
+
+  it('ignores a user_message at or before the given seq (a pre-question follow-up)', () => {
+    const events = [
+      sev(0, 'user_message', { text: 'stale' }),
+      sev(1, 'question', { toolCallId: 'a1', question: 'which?' }),
+    ]
+    expect(findAnswerAfter(events, 1)).toBeUndefined()
+  })
+
+  it('returns undefined when no answer has arrived yet', () => {
+    expect(findAnswerAfter([sev(0, 'question', { toolCallId: 'a1', question: 'q' })], 0)).toBeUndefined()
+  })
+
+  it('defaults a missing answer text to empty string', () => {
+    expect(findAnswerAfter([sev(1, 'user_message', {})], 0)).toBe('')
+  })
+})
+
+describe('questionSeqFor', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+
+  it('returns the seq of the question for a given ask_user call', () => {
+    const events = [
+      sev(0, 'tool_proposed', { toolCallId: 'a1', name: 'ask_user', kind: 'side-effecting', args: {} }),
+      sev(1, 'question', { toolCallId: 'a1', question: 'which?' }),
+    ]
+    expect(questionSeqFor(events, 'a1')).toBe(1)
+  })
+
+  it('returns undefined when no question exists for that call (first reach)', () => {
+    expect(questionSeqFor([sev(0, 'message', { text: 'hi' })], 'a1')).toBeUndefined()
+  })
+
+  it('ignores a question for a different ask_user call', () => {
+    expect(questionSeqFor([sev(0, 'question', { toolCallId: 'other', question: 'q' })], 'a1')).toBeUndefined()
   })
 })
 

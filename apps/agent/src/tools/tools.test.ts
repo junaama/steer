@@ -12,6 +12,7 @@ import {
   write_file,
   todo_write,
   task,
+  ask_user,
   bash,
   edit_file,
   multi_edit,
@@ -129,6 +130,17 @@ describe('task', () => {
     await expect(task({ description: 'Inspect', prompt: 'Read src/login.ts' }, ctx())).resolves.toBe(
       'error: task subagent runner is unavailable',
     )
+  })
+})
+
+describe('ask_user', () => {
+  it('validates the question and echoes it (fallback path; the loop owns the wait)', async () => {
+    await expect(ask_user({ question: 'Which folder?' }, ctx())).resolves.toBe('Asked the operator: Which folder?')
+  })
+
+  it('rejects a missing or empty question', async () => {
+    await expect(ask_user({ question: '' }, ctx())).rejects.toThrow()
+    await expect(ask_user({}, ctx())).rejects.toThrow()
   })
 })
 

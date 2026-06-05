@@ -12,7 +12,7 @@ import { createWriteClient, type WriteClient } from './lib/write-client.js'
 import { createSessionsCollection, createEventsCollection, createEnvironmentsCollection } from './data/electric.js'
 import { initialTheme, storeTheme, type Theme } from './lib/theme.js'
 import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './data/decode.js'
-import { buildTrace, latestPlan, type ToolItem } from './lib/trace.js'
+import { buildTrace, latestPlan, pendingQuestion, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
 import type { SessionView, FilterId } from './lib/filter.js'
 import type { SessionRow, EventRow, EnvironmentRow } from './data/types.js'
@@ -247,6 +247,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
   const rawEvents = rows.map((r) => ({ seq: r.seq, type: r.type, payload: r.payload }))
   const items = buildTrace(rawEvents, session.task)
   const plan = latestPlan(rawEvents)
+  const question = pendingQuestion(rawEvents)
 
   const handleAction = (tool: ToolItem, action: InterceptAction): void => {
     const id = tool.toolCallId
@@ -272,6 +273,8 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
       onContinue={() => void write.setStatus(session.id, 'starting')}
       onSendMessage={handleSendMessage}
+      pendingQuestion={session.lastStatus === 'awaiting-input' ? question : null}
+      onAnswer={handleSendMessage}
       renderToolControls={(tool) => <InterceptControls tool={tool} onAction={(a) => handleAction(tool, a)} />}
     />
   )
