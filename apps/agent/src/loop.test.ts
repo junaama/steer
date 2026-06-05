@@ -176,6 +176,21 @@ describe('runSession', () => {
     expect(await status(id)).toBe('completed')
   })
 
+  it('treats streamed deltas plus one terminal message as a single completed step (DB-backed cursor)', async () => {
+    const id = await newSession()
+    // Persist a streamed turn through the real store, then assert the step cursor
+    // over the fetched event log (real DB rows, not inferred): the deltas are
+    // non-terminal, so the whole turn is exactly one completed step.
+    await store.appendEvent(id, 'thinking_delta', { text: 'plan' })
+    await store.appendEvent(id, 'message_delta', { text: 'Hel' })
+    await store.appendEvent(id, 'message_delta', { text: 'lo' })
+    await store.appendEvent(id, 'message', { text: 'Hello' })
+
+    const events = await store.listEvents(id)
+    expect(types(events)).toEqual(['thinking_delta', 'message_delta', 'message_delta', 'message'])
+    expect(completedSteps(events)).toBe(1)
+  })
+
   it('captures tool errors as a tool_result instead of throwing', async () => {
     const id = await newSession()
     const script: Step[] = [{ t: 'tool', toolCallId: 'tc1', name: 'read_file', args: { path: 'missing.txt' } }]
@@ -600,6 +615,32 @@ describe('runSession', () => {
     expect(await status(id)).toBe('interrupted')
     const events = await store.listEvents(id)
     expect(events.some((e) => e.type === 'interrupted')).toBe(true)
+  })
+})
+
+describe('completedSteps (delta events are non-terminal)', () => {
+  const sev = (seq: number, type: EventType, payload: unknown): StoredEvent => ({ sessionId: 's', seq, type, payload })
+
+  it('counts only terminal events, ignoring message_delta and thinking_delta', () => {
+    // A streamed turn: reasoning + text arrive as deltas, then coalesce into one
+    // terminal message. The deltas must not advance the step cursor — the whole
+    // turn is exactly one completed step.
+    const events: StoredEvent[] = [
+      sev(0, 'thinking_delta', { text: 'weigh' }),
+      sev(1, 'thinking_delta', { text: 'ing' }),
+      sev(2, 'message_delta', { text: 'Hel' }),
+      sev(3, 'message_delta', { text: 'lo' }),
+      sev(4, 'message', { text: 'Hello' }),
+    ]
+    expect(completedSteps(events)).toBe(1)
+  })
+
+  it('a log of only deltas counts as zero completed steps (no terminal yet)', () => {
+    const events: StoredEvent[] = [
+      sev(0, 'message_delta', { text: 'partial' }),
+      sev(1, 'thinking_delta', { text: 'still streaming' }),
+    ]
+    expect(completedSteps(events)).toBe(0)
   })
 })
 

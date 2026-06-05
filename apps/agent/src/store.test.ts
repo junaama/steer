@@ -42,6 +42,46 @@ beforeEach(async () => {
   await pool.query('TRUNCATE environments CASCADE;')
 })
 
+describe('appendEvent (streaming delta event types)', () => {
+  it('accepts a valid message_delta and persists it', async () => {
+    const id = await newSession()
+    const seq = await store.appendEvent(id, 'message_delta', { text: 'Hel' })
+    expect(seq).toBe(0)
+    const events = await store.listEvents(id)
+    expect(events).toHaveLength(1)
+    expect(events[0]!.type).toBe('message_delta')
+    expect(events[0]!.payload).toEqual({ text: 'Hel' })
+  })
+
+  it('accepts a valid thinking_delta and persists it', async () => {
+    const id = await newSession()
+    await store.appendEvent(id, 'thinking_delta', { text: 'weighing options' })
+    const events = await store.listEvents(id)
+    expect(events).toHaveLength(1)
+    expect(events[0]!.type).toBe('thinking_delta')
+    expect(events[0]!.payload).toEqual({ text: 'weighing options' })
+  })
+
+  it('rejects a message_delta missing text (zod throws, nothing persists)', async () => {
+    const id = await newSession()
+    await expect(store.appendEvent(id, 'message_delta', {})).rejects.toThrow()
+    const events = await store.listEvents(id)
+    expect(events).toHaveLength(0)
+  })
+
+  it('increments seq atomically across delta and terminal event types', async () => {
+    const id = await newSession()
+    expect(await store.appendEvent(id, 'thinking_delta', { text: 'plan' })).toBe(0)
+    expect(await store.appendEvent(id, 'message_delta', { text: 'Hel' })).toBe(1)
+    expect(await store.appendEvent(id, 'message_delta', { text: 'lo' })).toBe(2)
+    expect(await store.appendEvent(id, 'message', { text: 'Hello' })).toBe(3)
+
+    const events = await store.listEvents(id)
+    expect(events.map((e) => e.type)).toEqual(['thinking_delta', 'message_delta', 'message_delta', 'message'])
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3])
+  })
+})
+
 describe('claimSession (single-owner atomic claim)', () => {
   it('claims an unclaimed session and records the owner', async () => {
     const id = await newSession()

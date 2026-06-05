@@ -19,8 +19,14 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number]
 
 export const EVENT_TYPES = [
   'message',
+  // Coarse streamed chunk of the assistant's reply, coalesced into a terminal
+  // `message` on turn finish. Non-terminal: never counts toward the step cursor.
+  'message_delta',
   'user_message',
   'thinking',
+  // Coarse streamed chunk of the assistant's reasoning, coalesced into a terminal
+  // `thinking` on turn finish. Non-terminal: never counts toward the step cursor.
+  'thinking_delta',
   'tool_proposed',
   'tool_started',
   'tool_stdout_delta',

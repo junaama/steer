@@ -25,6 +25,31 @@ describe('event payloads', () => {
     expect(parseEventPayload('message', p)).toEqual(p)
   })
 
+  it('round-trips a valid message_delta chunk', () => {
+    expect(parseEventPayload('message_delta', { text: 'Hel' })).toEqual({ text: 'Hel' })
+  })
+
+  it('round-trips a child-tagged message_delta chunk', () => {
+    const p = { text: 'lo', parentToolCallId: 'task1' }
+    expect(parseEventPayload('message_delta', p)).toEqual(p)
+  })
+
+  it('rejects a message_delta missing text', () => {
+    expect(() => parseEventPayload('message_delta', {})).toThrow()
+  })
+
+  it('rejects an empty message_delta chunk', () => {
+    expect(() => parseEventPayload('message_delta', { text: '' })).toThrow()
+  })
+
+  it('round-trips a valid thinking_delta chunk', () => {
+    expect(parseEventPayload('thinking_delta', { text: 'reasoning…' })).toEqual({ text: 'reasoning…' })
+  })
+
+  it('rejects a thinking_delta missing text', () => {
+    expect(() => parseEventPayload('thinking_delta', { parentToolCallId: 'task1' })).toThrow()
+  })
+
   it('round-trips a valid tool_proposed payload', () => {
     const p = { toolCallId: 'tc1', name: 'grep', kind: 'read-only', args: { pattern: 'x' } }
     expect(parseEventPayload('tool_proposed', p)).toEqual(p)

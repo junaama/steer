@@ -30,6 +30,10 @@ const childTag = z.object({ parentToolCallId: z.string().min(1).optional() })
 const childToolRef = toolRef.merge(childTag)
 const textPayload = z.object({ text: z.string() })
 const childTextPayload = textPayload.merge(childTag)
+// Streamed assistant text/reasoning chunk. Mirrors the `message`/`thinking`
+// child-tagged text shape, but a delta carries a non-empty chunk (an empty
+// chunk is never worth a row — it would just be coalescer noise).
+const deltaTextPayload = z.object({ text: z.string().min(1) }).merge(childTag)
 export const planItemSchema = z.object({
   text: z.string().min(1),
   status: z.enum(['pending', 'in_progress', 'done']),
@@ -38,9 +42,15 @@ export const planItemSchema = z.object({
 /** Event payload schema keyed by `event.type`. */
 export const eventPayloadSchemas = {
   message: childTextPayload,
+  // A coarse streamed chunk of the assistant's reply, coalesced into a terminal
+  // `message` on turn finish (non-terminal — see loop.ts TERMINAL_TYPES).
+  message_delta: deltaTextPayload,
   // A follow-up instruction the user sends to an existing session (multi-turn).
   user_message: textPayload,
   thinking: childTextPayload,
+  // A coarse streamed chunk of the assistant's reasoning, coalesced into a
+  // terminal `thinking` on turn finish (non-terminal — see loop.ts TERMINAL_TYPES).
+  thinking_delta: deltaTextPayload,
   tool_proposed: z
     .object({
       toolCallId: z.string().min(1),
