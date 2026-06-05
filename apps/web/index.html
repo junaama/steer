@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Steer</title>
+    <!--
+      Apply the saved theme before the bundle loads so a refresh never flashes
+      the wrong scheme. Mirrors src/lib/theme.ts (key + OS fallback); React
+      remains the source of truth once mounted.
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('steer_theme')
+          if (t !== 'light' && t !== 'dark') {
+            t =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark'
+          }
+          document.documentElement.setAttribute('data-theme', t)
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

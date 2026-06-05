@@ -10,6 +10,7 @@ import { useSteerAuth, type SteerAuth } from './auth/AuthProvider.js'
 import { createAuthedFetch, performLogout, type FetchLike } from './auth/authed-fetch.js'
 import { createWriteClient, type WriteClient } from './lib/write-client.js'
 import { createSessionsCollection, createEventsCollection, createEnvironmentsCollection } from './data/electric.js'
+import { initialTheme, storeTheme, type Theme } from './lib/theme.js'
 import { decodeSessionRow, decodeEventRow, decodeEnvironmentRow } from './data/decode.js'
 import { buildTrace, latestPlan, type ToolItem } from './lib/trace.js'
 import { randomId } from './lib/id.js'
@@ -95,15 +96,17 @@ function LoginGate({ auth }: { auth: SteerAuth }): JSX.Element {
 }
 
 function AuthedApp({ auth }: { auth: SteerAuth }): JSX.Element {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [theme, setTheme] = useState<Theme>(initialTheme)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<FilterId>('all')
   const [activeId, setActiveId] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
 
+  // Reflect the theme on <html> and persist it so a refresh keeps the choice.
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
+    storeTheme(theme)
   }, [theme])
 
   const authedFetch = useMemo(() => createAuthedFetch(auth.getToken, fetch), [auth])
