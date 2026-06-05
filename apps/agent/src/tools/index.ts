@@ -8,6 +8,7 @@ import type { AgentStore } from '../store.js'
 import { edit_file, multi_edit } from './edit.js'
 import { makeDefinitionTool, makeDiagnosticsTool, makeHoverTool, makeReferencesTool } from './lsp.js'
 import { run_command } from './run.js'
+import { git_diff } from './git_diff.js'
 import { safeJoin } from './paths.js'
 
 export interface ToolContext {
@@ -217,6 +218,7 @@ export const tools: Record<string, ToolFn> = {
   run_command,
   task,
   ask_user,
+  git_diff,
 }
 
-export { edit_file, multi_edit, run_command }
+export { edit_file, multi_edit, run_command, git_diff }

@@ -23,6 +23,7 @@ describe('tool policy', () => {
       'definition',
       'references',
       'hover',
+      'git_diff',
     ] as const) {
       expect(classifyTool(name)).toBe('read-only')
       expect(isReadOnly(name)).toBe(true)
@@ -56,9 +57,21 @@ describe('tool policy', () => {
     expect(isReadOnly('totally_unknown')).toBe(false)
   })
 
+  it('git_diff is read-only (a working-tree read; no approval gate — R12)', () => {
+    expect(classifyTool('git_diff')).toBe('read-only')
+    expect(isReadOnly('git_diff')).toBe(true)
+    expect(READ_ONLY_TOOLS).toContain('git_diff')
+  })
+
+  it('describes git_diff as a working-set diff with staged and path options', () => {
+    expect(TOOL_DESCRIPTIONS.git_diff).toMatch(/git diff/i)
+    expect(TOOL_DESCRIPTIONS.git_diff).toMatch(/staged/i)
+    expect(TOOL_DESCRIPTIONS.git_diff).toMatch(/path/i)
+  })
+
   it('READ_ONLY_TOOLS contains exactly the read-only tools', () => {
     expect([...READ_ONLY_TOOLS].sort()).toEqual(
-      ['definition', 'diagnostics', 'glob', 'grep', 'hover', 'list_dir', 'read_file', 'references', 'todo_write', 'web_search', 'web_fetch'].sort(),
+      ['definition', 'diagnostics', 'git_diff', 'glob', 'grep', 'hover', 'list_dir', 'read_file', 'references', 'todo_write', 'web_search', 'web_fetch'].sort(),
     )
     expect(READ_ONLY_TOOLS).not.toContain('write_file')
     expect(READ_ONLY_TOOLS).not.toContain('edit_file')
@@ -149,6 +162,13 @@ describe('validateToolArgs', () => {
       prompt: 'Read src/index.ts',
     })
     expect(validateToolArgs('ask_user', { question: 'Which folder?' })).toEqual({ question: 'Which folder?' })
+    expect(validateToolArgs('git_diff', {})).toEqual({})
+    expect(validateToolArgs('git_diff', { staged: true })).toEqual({ staged: true })
+    expect(validateToolArgs('git_diff', { path: 'src' })).toEqual({ path: 'src' })
+    expect(validateToolArgs('git_diff', { staged: true, path: 'src/a.ts' })).toEqual({
+      staged: true,
+      path: 'src/a.ts',
+    })
     expect(
       validateToolArgs('task', { description: 'Inspect', prompt: 'Read src/index.ts', tools: ['read_file'] }),
     ).toEqual({
@@ -196,5 +216,7 @@ describe('validateToolArgs', () => {
     expect(() => validateToolArgs('todo_write', { items: [{ status: 'pending' }] })).toThrow()
     expect(() => validateToolArgs('ask_user', { question: '' })).toThrow()
     expect(() => validateToolArgs('ask_user', {})).toThrow()
+    expect(() => validateToolArgs('git_diff', { staged: 'yes' })).toThrow()
+    expect(() => validateToolArgs('git_diff', { path: '' })).toThrow()
   })
 })

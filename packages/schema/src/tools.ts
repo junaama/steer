@@ -47,6 +47,7 @@ export const toolArgSchemas = {
     tools: z.array(z.string().min(1)).optional(),
   }),
   ask_user: z.object({ question: z.string().min(1) }),
+  git_diff: z.object({ staged: z.boolean().optional(), path: z.string().min(1).optional() }),
 } as const
 
 export type ToolName = keyof typeof toolArgSchemas
@@ -75,6 +76,8 @@ export const TOOL_POLICY: Record<ToolName, ToolKind> = {
   // generic gate; the loop gives it a dedicated question→answer branch (R11),
   // but classifying it side-effecting keeps it out of the auto-run read-only path.
   ask_user: 'side-effecting',
+  // git_diff only READS the working tree (`git diff`) — no mutation, no gate.
+  git_diff: 'read-only',
 }
 
 export const READ_ONLY_TOOLS: ToolName[] = (Object.keys(TOOL_POLICY) as ToolName[]).filter(
@@ -116,6 +119,9 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     'Ask the operator ONE targeted clarifying question and WAIT for their answer before continuing. ' +
     'Use this when a needed detail is genuinely missing or ambiguous — never guess or give up. ' +
     'The run pauses until the operator replies; their answer arrives as the next message in the thread.',
+  git_diff:
+    "Show the workspace's current git diff (unstaged by default; pass staged:true for the index, " +
+    'path to scope to a sub-path). Use this to see what has changed so far instead of reconstructing it from edits.',
 }
 
 export function isToolName(name: string): name is ToolName {
