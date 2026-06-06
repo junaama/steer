@@ -57,4 +57,32 @@ export const answerRelevancy: Evaluator = async (params) => {
   }
 }
 
-export const evaluators: Evaluator[] = [toolCorrectness, taskCompletion, answerRelevancy]
+/**
+ * Speculation about file contents — the "ARCHITECTURE.md likely contains the
+ * architecture" failure. A grounded agent opens the file and states what it
+ * actually holds, so hedging-about-contents phrases mean it guessed from names
+ * instead of reading. Deterministic + offline (no judge model): 1 when clean,
+ * 0 when the answer speculates, with the offending phrase in the comment.
+ */
+const SPECULATION_PATTERNS: RegExp[] = [
+  /\b(likely|probably|possibly|presumably|might|may)\s+(contains?|holds?|includes?|stores?|relate[sd]?|be\b)/i,
+  /\b(likely|probably|possibly|presumably)\s+(a|an|the)\b/i,
+  /\bappears?\s+to\s+(contain|be|hold|include)/i,
+]
+
+export const groundedness: Evaluator = async (params) => {
+  const { answer } = taskResult(params as Params)
+  const hits = SPECULATION_PATTERNS.map((re) => answer.match(re)?.[0]).filter(
+    (m): m is string => typeof m === 'string',
+  )
+  return {
+    name: 'groundedness',
+    value: hits.length === 0 ? 1 : 0,
+    comment:
+      hits.length === 0
+        ? 'no speculation about file contents'
+        : `speculated instead of reading: "${hits.join('", "')}"`,
+  }
+}
+
+export const evaluators: Evaluator[] = [toolCorrectness, taskCompletion, answerRelevancy, groundedness]

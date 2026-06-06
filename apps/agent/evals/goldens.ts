@@ -48,4 +48,13 @@ export const goldens: Golden[] = [
     expectedOutput: 'add and multiply',
     metadata: { fixture: 'mini-repo', expectedTools: ['read_file'], expectAnswerIncludes: ['add', 'multiply'] },
   },
+  {
+    // Guards the "list the dir, then say each file LIKELY contains X" failure:
+    // a grounded summary must READ the source (read_file) and name real
+    // contents (add/multiply from math.ts, slugify from util.ts), and the
+    // groundedness evaluator fails it if the answer speculates.
+    input: 'Summarize what this project does and what each source file contains, based on the actual file contents.',
+    expectedOutput: 'Reads the README and src files; math.ts exports add and multiply, util.ts defines slugify.',
+    metadata: { fixture: 'mini-repo', expectedTools: ['read_file'], expectAnswerIncludes: ['add', 'multiply', 'slugify'] },
+  },
 ]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toolCorrectness, taskCompletion, answerRelevancy } from './evaluators.js'
+import { toolCorrectness, taskCompletion, answerRelevancy, groundedness } from './evaluators.js'
 import type { TaskResult } from './harness.js'
 
 /** Build an EvaluatorParams-shaped object; evaluators only read `output` + `metadata`. */
@@ -61,5 +61,30 @@ describe('answerRelevancy', () => {
 
   it('is 1 when nothing is expected', async () => {
     expect(value(await answerRelevancy(params({ answer: '' }, { expectAnswerIncludes: [] })))).toBe(1)
+  })
+})
+
+describe('groundedness', () => {
+  const comment = (e: unknown): string => (e as { comment: string }).comment
+
+  it('is 1 for a grounded answer with no speculation', async () => {
+    expect(value(await groundedness(params({ answer: 'math.ts exports add and multiply; util.ts defines slugify.' }, {})))).toBe(1)
+  })
+
+  it('is 0 when the answer speculates about file contents', async () => {
+    // the exact failure: list the dir, then guess each file
+    expect(value(await groundedness(params({ answer: 'ARCHITECTURE.md likely contains the architecture; backend/ probably holds the backend code.' }, {})))).toBe(0)
+  })
+
+  it('flags "appears to contain" / "might contain" hedging', async () => {
+    expect(value(await groundedness(params({ answer: 'render.yaml appears to contain deploy config and might contain secrets.' }, {})))).toBe(0)
+  })
+
+  it('flags a bare "possibly a/the" guess', async () => {
+    expect(value(await groundedness(params({ answer: 'CLAUDE.md is possibly a config for a tool named Claude.' }, {})))).toBe(0)
+  })
+
+  it('names the offending phrase in the comment', async () => {
+    expect(comment(await groundedness(params({ answer: 'docs/ likely contains documentation.' }, {})))).toMatch(/likely contains/i)
   })
 })
