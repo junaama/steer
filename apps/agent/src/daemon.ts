@@ -87,9 +87,14 @@ export function createRunner(
         try {
           await runOne(store, intent)
         } catch (err) {
-          // Surface the cause: a swallowed run failure (bad model creds, a tool
-          // throw) otherwise leaves the session 'error' with no diagnostic.
+          // Surface the cause: a run failure (bad model creds, rate limit, a tool
+          // throw) otherwise leaves the session 'error' with no diagnostic — which
+          // the operator experiences as a blank, silent session. Record a visible
+          // message in the trace, then mark it errored.
           console.error(`[agent] session ${intent.id} failed: ${errorMessage(err)}`, err)
+          await store
+            .appendEvent(intent.id, 'message', { text: `The run stopped on an error: ${errorMessage(err)}` })
+            .catch(() => undefined)
           await store.setStatus(intent.id, 'error')
         }
       } finally {

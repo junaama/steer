@@ -112,6 +112,12 @@ async function streamTurn(
         name: part.toolName,
         args: part.args as Record<string, unknown>,
       })
+    } else if (part.type === 'error') {
+      // streamText reports a model/transport failure (rate limit, bad model id,
+      // auth, overload) as an `error` part — it does NOT throw. Rethrow so the
+      // loop marks the run errored with a visible message instead of silently
+      // completing an empty turn (which the operator sees as a blank session).
+      throw part.error
     }
   }
   return { text, reasoning, toolCalls }

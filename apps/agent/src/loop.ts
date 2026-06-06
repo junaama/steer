@@ -403,6 +403,10 @@ export async function runSession(
       if (chunk === null || chunk.length === 0) return
       deltaTail = deltaTail.then(() => store.appendEvent(sessionId, type, { text: chunk }))
     }
+    // A driver failure (model error surfaced by streamTurn, or a real crash)
+    // propagates out of runSession: the daemon catches it, records a visible
+    // error message, and marks the session errored — while the committed log
+    // stays intact for crash-resume. Do NOT swallow it here.
     const result = await driver.next(visibleEvents, cursor, {
       onReasoningDelta: (chunk) => flushDelta('thinking_delta', reasoningBuf.push(chunk)),
       onTextDelta: (chunk) => flushDelta('message_delta', textBuf.push(chunk)),

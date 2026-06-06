@@ -74,17 +74,20 @@ describe('createRunner — claim gate', () => {
     warn.mockRestore()
   })
 
-  it('marks the session errored when the run throws AND logs the cause (no more silent error)', async () => {
+  it('marks the session errored when the run throws, writes a visible message, AND logs the cause', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const setStatus = vi.fn(async () => {})
+    const appendEvent = vi.fn(async () => 0)
     const cause = new Error('boom')
-    const store = fakeStore({ claimSession: vi.fn(async () => true), setStatus })
+    const store = fakeStore({ claimSession: vi.fn(async () => true), setStatus, appendEvent })
     const runOne = vi.fn(async () => {
       throw cause
     })
     const active = new Set<string>()
     createRunner(noDb, active, 'laptop', { store, runOne })(intent('s1'))
     await tick()
+    // The failure is now VISIBLE in the trace, not a silent blank session.
+    expect(appendEvent).toHaveBeenCalledWith('s1', 'message', { text: expect.stringContaining('boom') })
     expect(setStatus).toHaveBeenCalledWith('s1', 'error')
     expect(error).toHaveBeenCalledWith(expect.stringContaining('session s1 failed: boom'), cause)
     expect(active.has('s1')).toBe(false)
