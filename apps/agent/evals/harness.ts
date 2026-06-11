@@ -8,6 +8,7 @@ import { createDbStore, type AgentStore } from '../src/store.js'
 import { runSession } from '../src/loop.js'
 import { tools as allTools } from '../src/tools/index.js'
 import { createModelDriver } from '../src/model.js'
+import { resolveSessionWorkspace } from '../src/workspace.js'
 import type { Golden, GoldenMetadata } from './goldens.js'
 import type { ConversationGolden } from './conversation.js'
 
@@ -40,6 +41,17 @@ function ensure(): { db: Db; store: AgentStore } {
   return { db: db!, store: store! }
 }
 
+function resolveGoldenWorkspace(meta: GoldenMetadata): { root: string; workspaceRoot: string; homeDir?: string } {
+  const root = join(fixturesRoot, meta.rootFixture ?? meta.fixture)
+  const homeDir = meta.homeFixture ? join(fixturesRoot, meta.homeFixture) : undefined
+  const workspaceRoot = meta.sessionWorkdir
+    ? homeDir
+      ? resolveSessionWorkspace(root, meta.sessionWorkdir, () => homeDir)
+      : resolveSessionWorkspace(root, meta.sessionWorkdir)
+    : join(fixturesRoot, meta.fixture)
+  return homeDir ? { root, workspaceRoot, homeDir } : { root, workspaceRoot }
+}
+
 /**
  * Run one golden through the REAL agent loop against a test Postgres + the
  * fixture workspace, then project the actual event log into a TaskResult.
@@ -53,7 +65,7 @@ export async function runGolden(golden: Golden, timeoutMs = 90_000): Promise<Tas
   const meta = golden.metadata as GoldenMetadata
   const model = meta.model ?? 'haiku'
   const sessionId = `eval-${randomUUID()}`
-  const workspaceRoot = join(fixturesRoot, meta.fixture)
+  const workspace = resolveGoldenWorkspace(meta)
 
   await db.insert(sessions).values({
     id: sessionId,
@@ -62,6 +74,7 @@ export async function runGolden(golden: Golden, timeoutMs = 90_000): Promise<Tas
     task: String(golden.input),
     model,
     lastStatus: 'starting',
+    workdir: meta.sessionWorkdir,
   })
 
   const driver = createModelDriver({ model, task: String(golden.input), tools: READ_ONLY_TOOLS })
@@ -69,8 +82,7 @@ export async function runGolden(golden: Golden, timeoutMs = 90_000): Promise<Tas
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     await runSession(store, driver, sessionId, {
-      workspaceRoot,
-      root: workspaceRoot,
+      ...workspace,
       tools: allTools,
       maxSteps: meta.maxSteps ?? 12,
       signal: controller.signal,
@@ -122,7 +134,7 @@ export async function runConversationGolden(
   const meta = golden.metadata
   const model = meta.model ?? 'haiku'
   const sessionId = `eval-${randomUUID()}`
-  const workspaceRoot = join(fixturesRoot, meta.fixture)
+  const workspace = resolveGoldenWorkspace(meta)
 
   await db.insert(sessions).values({
     id: sessionId,
@@ -131,14 +143,14 @@ export async function runConversationGolden(
     task: golden.input,
     model,
     lastStatus: 'starting',
+    workdir: meta.sessionWorkdir,
   })
 
   const driver = createModelDriver({ model, task: golden.input, tools: READ_ONLY_TOOLS })
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const runOpts = {
-    workspaceRoot,
-    root: workspaceRoot,
+    ...workspace,
     tools: allTools,
     maxSteps: meta.maxSteps ?? 24,
     signal: controller.signal,

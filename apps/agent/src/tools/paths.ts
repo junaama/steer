@@ -1,4 +1,5 @@
-import { resolve, relative, isAbsolute } from 'node:path'
+import { homedir } from 'node:os'
+import { resolve, relative, isAbsolute, join } from 'node:path'
 
 /**
  * Resolve a tool `path` for execution. Relative paths resolve against `base` (the
@@ -10,8 +11,13 @@ import { resolve, relative, isAbsolute } from 'node:path'
  * session dir, callers pass `base` as `root` and this is exactly the old
  * per-directory sandbox.
  */
-export function safeJoin(root: string, base: string, path: string): string {
-  const full = resolve(base, path)
+function expandHome(path: string, home: string): string {
+  if (path === '~') return home
+  return path.startsWith('~/') ? join(home, path.slice(2)) : path
+}
+
+export function safeJoin(root: string, base: string, path: string, home: string = homedir()): string {
+  const full = resolve(base, expandHome(path, home))
   const rel = relative(root, full)
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`path escapes the workspace: ${path}`)
   return full

@@ -57,7 +57,7 @@ export const git_diff: ToolFn = async (args, ctx) => {
     let resolved: string
     try {
       // safeJoin throws an Error whose message names the escaping path.
-      resolved = safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path)
+      resolved = safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path, ctx.homeDir)
     } catch (err) {
       return `error: ${(err as Error).message}`
     }

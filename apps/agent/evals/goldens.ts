@@ -3,6 +3,12 @@ import type { ExperimentItem } from '@langfuse/client'
 export interface GoldenMetadata extends Record<string, unknown> {
   /** Fixture workspace directory under evals/fixtures the session runs in. */
   fixture: string
+  /** Optional sandbox root fixture when the daemon root is wider than the session cwd. */
+  rootFixture?: string
+  /** Optional daemon home fixture for home-relative workdir/tool paths. */
+  homeFixture?: string
+  /** Optional session cwd to resolve inside root, matching client-created workdirs. */
+  sessionWorkdir?: string
   /** Tools a competent agent should reach for (overlap is scored, not exact match). */
   expectedTools: string[]
   /** Substrings the final answer should contain (case-insensitive). */

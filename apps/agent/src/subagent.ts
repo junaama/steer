@@ -21,6 +21,7 @@ export interface RunSubagentDeps {
   workspaceRoot: string
   /** Sandbox boundary (broad daemon root); defaults to workspaceRoot. */
   root?: string
+  homeDir?: string
   signal?: AbortSignal
   maxSteps?: number
 }
@@ -152,7 +153,7 @@ async function runChildTool(
 
   const impl = allowed.has(call.name) ? deps.tools[call.name] : undefined
   const result = impl
-    ? await impl(call.args, { workspaceRoot: deps.workspaceRoot, root: deps.root, signal: deps.signal }).catch(
+    ? await impl(call.args, { workspaceRoot: deps.workspaceRoot, root: deps.root, homeDir: deps.homeDir, signal: deps.signal }).catch(
         (err: unknown) => `error: ${errorMessage(err)}`,
       )
     : `error: tool ${call.name} is not available to this subagent`

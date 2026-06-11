@@ -341,6 +341,7 @@ export interface RunOptions {
   workspaceRoot: string
   /** Sandbox boundary file access is confined to (broad daemon root). Defaults to workspaceRoot. */
   root?: string
+  homeDir?: string
   tools: Record<string, ToolFn>
   signal?: AbortSignal
   /** Control-poll interval for the approval gate + live cancel (ms). */
@@ -552,6 +553,7 @@ async function handleToolCall(
     tools: options.tools,
     workspaceRoot: options.workspaceRoot,
     root: options.root,
+    homeDir: options.homeDir,
     pollMs: options.pollMs ?? 200,
     allowlist,
     signal: options.signal,

@@ -50,7 +50,7 @@ export const edit_file: ToolFn = async (args, ctx) => {
     old_string: string
     new_string: string
   }
-  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
+  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)
   const before = await readFile(fullPath, 'utf8')
   const after = applyEdits(before, [{ old_string, new_string }])
   await writeFile(fullPath, after, 'utf8')
@@ -59,7 +59,7 @@ export const edit_file: ToolFn = async (args, ctx) => {
 
 export const multi_edit: ToolFn = async (args, ctx) => {
   const { path, edits } = validateToolArgs('multi_edit', args) as { path: string; edits: Edit[] }
-  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
+  const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)
   const before = await readFile(fullPath, 'utf8')
   const after = applyEdits(before, edits)
   await writeFile(fullPath, after, 'utf8')

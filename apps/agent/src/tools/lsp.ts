@@ -41,7 +41,7 @@ export function makeDiagnosticsTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path } = validateToolArgs('diagnostics', args) as { path: string }
-    return formatDiagnostics(await client.diagnostics(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)))
+    return formatDiagnostics(await client.diagnostics(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)))
   }
 }
 
@@ -50,7 +50,7 @@ export function makeDefinitionTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('definition', args) as PositionArgs
-    return formatLocations(await client.definition(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character))
+    return formatLocations(await client.definition(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir), line, character))
   }
 }
 
@@ -59,7 +59,7 @@ export function makeReferencesTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('references', args) as PositionArgs
-    return formatLocations(await client.references(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character))
+    return formatLocations(await client.references(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir), line, character))
   }
 }
 
@@ -68,7 +68,7 @@ export function makeHoverTool(client: LspClient): ToolFn {
     const disabled = unavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('hover', args) as PositionArgs
-    const text = (await client.hover?.(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path), line, character)) ?? null
+    const text = (await client.hover?.(safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir), line, character)) ?? null
     return text ?? 'No hover information.'
   }
 }
@@ -88,7 +88,7 @@ async function applyLspEdits(edits: readonly LspEdit[], ctx: ToolContext): Promi
   const sandbox = ctx.root ?? ctx.workspaceRoot
   const changed: string[] = []
   for (const edit of edits) {
-    const fullPath = safeJoin(sandbox, ctx.workspaceRoot, edit.path)
+    const fullPath = safeJoin(sandbox, ctx.workspaceRoot, edit.path, ctx.homeDir)
     await writeFile(fullPath, edit.newText, 'utf8')
     changed.push(relative(ctx.workspaceRoot, fullPath))
   }
@@ -102,7 +102,7 @@ export function makeRenameSymbolTool(client: LspClient): ToolFn {
     const { path, line, character, newName } = validateToolArgs('rename_symbol', args) as PositionArgs & {
       newName: string
     }
-    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
+    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)
     const edits = (await client.rename?.(fullPath, line, character, newName)) ?? []
     if (edits.length === 0) return `No rename available for the symbol at ${path}:${line + 1}:${character + 1}.`
     const changed = await applyLspEdits(edits, ctx)
@@ -115,7 +115,7 @@ export function makeFormatTool(client: LspClient): ToolFn {
     const disabled = writeUnavailable(client)
     if (disabled !== null) return disabled
     const { path } = validateToolArgs('format', args) as { path: string }
-    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
+    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)
     const edits = (await client.format?.(fullPath)) ?? []
     if (edits.length === 0) return `Already formatted · ${path} unchanged.`
     const changed = await applyLspEdits(edits, ctx)
@@ -128,7 +128,7 @@ export function makeCodeActionTool(client: LspClient): ToolFn {
     const disabled = writeUnavailable(client)
     if (disabled !== null) return disabled
     const { path, line, character } = validateToolArgs('code_action', args) as PositionArgs
-    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path)
+    const fullPath = safeJoin(ctx.root ?? ctx.workspaceRoot, ctx.workspaceRoot, path, ctx.homeDir)
     const actions = (await client.codeActions?.(fullPath, line, character)) ?? []
     const action = actions[0]
     if (!action) return `No code action available at ${path}:${line + 1}:${character + 1}.`

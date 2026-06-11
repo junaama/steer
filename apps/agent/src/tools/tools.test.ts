@@ -48,16 +48,21 @@ describe('read_file', () => {
 describe('sandbox split: session workdir within a broader daemon root', () => {
   let base: string
   let projectA: string
+  let home: string
   beforeAll(async () => {
     base = await mkdtemp(join(tmpdir(), 'steer-split-'))
     projectA = join(base, 'projectA')
+    home = join(base, 'home')
     await mkdir(projectA)
     await mkdir(join(base, 'projectB'))
+    await mkdir(join(home, 'dev', 'steer'), { recursive: true })
     await writeFile(join(projectA, 'a.txt'), 'in A')
     await writeFile(join(base, 'projectB', 'b.txt'), 'in B')
+    await writeFile(join(home, 'dev', 'steer', 'README.md'), '# steer')
   })
   // root = the broad daemon root; workspaceRoot = the session's cwd within it.
   const split = () => ({ workspaceRoot: projectA, root: base })
+  const splitWithHome = () => ({ workspaceRoot: projectA, root: base, homeDir: home })
 
   it('resolves relative paths against the session workdir, not the root', async () => {
     expect(await read_file({ path: 'a.txt' }, split())).toBe('in A')
@@ -66,6 +71,15 @@ describe('sandbox split: session workdir within a broader daemon root', () => {
 
   it('reaches a sibling directory under the root (request broader scope)', async () => {
     expect(await read_file({ path: '../projectB/b.txt' }, split())).toBe('in B')
+  })
+
+  it('expands home-relative paths against the daemon host home inside the root', async () => {
+    expect(await read_file({ path: '~/dev/steer/README.md' }, splitWithHome())).toBe('# steer')
+    expect((await list_dir({ path: '~/dev/steer' }, splitWithHome())).split('\n')).toEqual(['README.md'])
+  })
+
+  it('still refuses home-relative paths outside the root', async () => {
+    await expect(list_dir({ path: '~/dev/steer' }, { workspaceRoot: projectA, root: base, homeDir: '/outside' })).rejects.toThrow(/escapes/)
   })
 
   it('still refuses a path above the root', async () => {

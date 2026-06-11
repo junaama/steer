@@ -23,6 +23,7 @@ export interface ToolContext {
   workspaceRoot: string
   /** Sandbox boundary file access is confined to. Defaults to workspaceRoot. */
   root?: string
+  homeDir?: string
   signal?: AbortSignal
   subagent?: {
     store: AgentStore
@@ -54,19 +55,19 @@ async function walk(dir: string): Promise<string[]> {
 
 export const read_file: ToolFn = async (args, ctx) => {
   const { path } = validateToolArgs('read_file', args) as { path: string }
-  return readFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), 'utf8')
+  return readFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path, ctx.homeDir), 'utf8')
 }
 
 export const list_dir: ToolFn = async (args, ctx) => {
   const { path } = validateToolArgs('list_dir', args) as { path: string }
-  const entries = await readdir(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), { withFileTypes: true })
+  const entries = await readdir(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path, ctx.homeDir), { withFileTypes: true })
   return entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort().join('\n')
 }
 
 export const grep: ToolFn = async (args, ctx) => {
   const { pattern, path } = validateToolArgs('grep', args) as { pattern: string; path: string }
   const re = new RegExp(pattern)
-  const target = safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path)
+  const target = safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path, ctx.homeDir)
   const files = (await stat(target)).isDirectory() ? await walk(target) : [target]
   const matches: string[] = []
   for (const file of files) {
@@ -180,6 +181,7 @@ export const task: ToolFn = async (args, ctx) => {
       tools: subagent.tools,
       workspaceRoot: ctx.workspaceRoot,
       root: ctx.root,
+      homeDir: ctx.homeDir,
       signal: ctx.signal,
       maxSteps: subagent.maxSteps,
     },
@@ -189,7 +191,7 @@ export const task: ToolFn = async (args, ctx) => {
 
 export const write_file: ToolFn = async (args, ctx) => {
   const { path, content } = validateToolArgs('write_file', args) as { path: string; content: string }
-  await writeFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path), content, 'utf8')
+  await writeFile(safeJoin(sandboxRoot(ctx), ctx.workspaceRoot, path, ctx.homeDir), content, 'utf8')
   return `Wrote ${path} · ${content.split('\n').length} lines`
 }
 

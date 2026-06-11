@@ -26,6 +26,21 @@ export interface ConversationGolden {
  */
 export const conversationGoldens: ConversationGolden[] = [
   {
+    input: 'List the files in this directory.',
+    followUps: ['It should be in ~/dev/steer.'],
+    expectedOutput: 'README.md and package.json',
+    metadata: {
+      model: 'sonnet',
+      fixture: 'home/dev/steer',
+      rootFixture: '.',
+      homeFixture: 'home',
+      sessionWorkdir: '~/dev/steer',
+      expectedTools: ['list_dir'],
+      expectAnswerIncludes: ['README.md', 'package.json'],
+      maxSteps: 18,
+    },
+  },
+  {
     // Pure conversational memory — the simplest "maintain history" check: the
     // follow-up can only be answered from the first turn's message.
     input: 'Remember this token for later: STEER-7788. Just acknowledge it.',
