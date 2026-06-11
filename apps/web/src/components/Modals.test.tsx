@@ -13,7 +13,7 @@ describe('NewSessionModal', () => {
     fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'do the thing' } })
     fireEvent.click(screen.getByText('opus'))
     fireEvent.click(start)
-    expect(onCreate).toHaveBeenCalledWith({ task: 'do the thing', model: 'opus', environment: undefined, workdir: undefined })
+    expect(onCreate).toHaveBeenCalledWith({ task: 'do the thing', model: 'opus', environment: undefined, workdir: '/', image: undefined })
   })
 
   it('closes on cancel and on scrim mousedown but not on modal mousedown', () => {

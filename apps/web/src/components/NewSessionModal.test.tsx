@@ -122,12 +122,23 @@ describe('NewSessionModal', () => {
     )
   })
 
-  it('omits workdir when the input is empty', () => {
+  it('defaults new sessions to the daemon host root', () => {
     const { props } = setup()
+    expect(screen.getByLabelText('Working directory')).toHaveValue('/')
     fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'task' } })
     fireEvent.click(screen.getByText('Start session'))
     expect(props.onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ workdir: undefined }),
+      expect.objectContaining({ workdir: '/' }),
+    )
+  })
+
+  it('falls back to root when the workdir field is cleared', () => {
+    const { props } = setup()
+    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'task' } })
+    fireEvent.change(screen.getByLabelText('Working directory'), { target: { value: '' } })
+    fireEvent.click(screen.getByText('Start session'))
+    expect(props.onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ workdir: '/' }),
     )
   })
 

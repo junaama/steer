@@ -2,21 +2,21 @@ import { describe, it, expect } from 'vitest'
 import { resolveWorkspaceRoot, resolveSessionWorkspace } from './workspace.js'
 
 describe('resolveWorkspaceRoot', () => {
-  it('defaults to the daemon working directory', () => {
-    expect(resolveWorkspaceRoot({}, () => '/work')).toBe('/work')
+  it('defaults to the daemon host root', () => {
+    expect(resolveWorkspaceRoot({})).toBe('/')
   })
 
   it('honors STEER_WORKSPACE_ROOT when set', () => {
-    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '/repo' }, () => '/work')).toBe('/repo')
+    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '/repo' })).toBe('/repo')
   })
 
   it('treats empty / whitespace as unset (docker injects "")', () => {
-    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '' }, () => '/work')).toBe('/work')
-    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '   ' }, () => '/work')).toBe('/work')
+    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '' })).toBe('/')
+    expect(resolveWorkspaceRoot({ STEER_WORKSPACE_ROOT: '   ' })).toBe('/')
   })
 
-  it('uses the real process cwd by default', () => {
-    expect(resolveWorkspaceRoot({})).toBe(process.cwd())
+  it('uses root for real process calls by default', () => {
+    expect(resolveWorkspaceRoot({})).toBe('/')
   })
 })
 
@@ -32,8 +32,7 @@ describe('resolveSessionWorkspace', () => {
   })
 
   it('ignores a workdir the daemon does not have, running at the root instead', () => {
-    // The container daemon (root /workspace) gets a host laptop path it can't see.
-    expect(resolveSessionWorkspace('/workspace', '/Users/me/proj')).toBe('/workspace')
+    expect(resolveSessionWorkspace('/sandbox', '/Users/me/proj')).toBe('/sandbox')
     expect(resolveSessionWorkspace('/home/me', '/etc')).toBe('/home/me')
   })
 

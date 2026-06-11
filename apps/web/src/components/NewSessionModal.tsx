@@ -34,7 +34,7 @@ export function NewSessionModal({ onClose, onCreate, environments, defaultEnviro
   const [task, setTask] = useState('')
   const [model, setModel] = useState('sonnet')
   const [selectedEnvId, setSelectedEnvId] = useState<string>(defaultEnvironment ?? '__default__')
-  const [workdir, setWorkdir] = useState('')
+  const [workdir, setWorkdir] = useState('/')
   const [image, setImage] = useState<ImageAttachment | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
 
@@ -65,7 +65,7 @@ export function NewSessionModal({ onClose, onCreate, environments, defaultEnviro
     // When "Default (unrouted)" is selected or no match, environment is undefined (omitted from payload).
     // When a named environment is selected, use its `env` value (which may be null for the default daemon).
     const environment = selectedRow ? (selectedRow.env ?? undefined) : undefined
-    const trimmedWorkdir = workdir.trim() || undefined
+    const trimmedWorkdir = workdir.trim() || '/'
     onCreate({ task: task.trim(), model, environment, workdir: trimmedWorkdir, image: image ?? undefined })
   }
 
@@ -116,7 +116,7 @@ export function NewSessionModal({ onClose, onCreate, environments, defaultEnviro
               className="workdir-input"
               type="text"
               value={workdir}
-              placeholder="/optional/working/directory"
+              placeholder="/"
               aria-label="Working directory"
               onChange={(e) => setWorkdir(e.target.value)}
             />

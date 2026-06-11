@@ -13,7 +13,7 @@ local Postgres on `:54321`; the two-window E2E is `pnpm --filter @steer/web e2e`
 | 1b | Server provides sync-driven functionality (txid + Electric proxy) | `prd-session-lifecycle.test.ts` ("returns the in-transaction txid"), `server.test.ts` (proxy) |
 | 2a | Postgres persistence | `prd-session-lifecycle.test.ts` (every assertion reads the row back), `messages.test.ts` |
 | 2b | Electric SQL sync engine (server proxies to it) | `server.test.ts` (`/sync/:collection` shape proxy), `prd-compliance.test.ts` (C6 deps) |
-| 3a | Agent runs anywhere, connects out only (no inbound) | `prd-compliance.test.ts` (portless agent, agent env has DATABASE_URL/SERVER_URL), `compose-workspace.test.ts` (container-local default workspace with opt-in host mount) |
+| 3a | Agent runs anywhere, connects out only (no inbound) | `prd-compliance.test.ts` (portless agent, agent env has DATABASE_URL/SERVER_URL), `apps/agent/src/workspace.test.ts` (daemon root + session workdir resolution), `apps/web/src/components/NewSessionModal.test.tsx` (client default workdir) |
 | 3b | Agent loop (inference calls, state) | `apps/agent/src/loop.test.ts`, `apps/agent/src/model` driver via `context.test.ts` |
 | 3c | Starting the agent is a CLI command | `prd-compliance.test.ts` (3c: `serve` script + `steer` bin + `./steer`) |
 | 3d | Receives sessions from the server via Electric sync | `apps/agent/src/intake.test.ts` |
@@ -48,7 +48,7 @@ local Postgres on `:54321`; the two-window E2E is `pnpm --filter @steer/web e2e`
 | C8 | LLM key via `.env`, documented | `prd-compliance.test.ts` (C8, checked from compose + README without opening env files) |
 | C10 | Compose has server+UI, db, Electric, agent containers | `prd-compliance.test.ts` (C5/C10) |
 | C11 | Server+UI publish ports; agent container opens none | `prd-compliance.test.ts` (C11 + source-level portless), `prd-loop-gates.test.ts` (default ports remain remappable when host ports are occupied) |
-| C12 | `docker compose up` builds with only a `.env`; project builds | `prd-compliance.test.ts` (migrate one-shot), `compose-workspace.test.ts` (no host-specific default workspace), `prd-loop-gates.test.ts` (base Electric internal), `prd-build.test.ts` |
+| C12 | `docker compose up` builds with only a `.env`; project builds | `prd-compliance.test.ts` (migrate one-shot), `prd-loop-gates.test.ts` (base Electric internal), `prd-build.test.ts` |
 | Gate | `prd-compile` deterministic Stop hook | `prd-loop-gates.test.ts` (root `verify`, `.claude/settings.json` Stop hook), `scripts/verify.mjs` |
 
 ## Deliverables
