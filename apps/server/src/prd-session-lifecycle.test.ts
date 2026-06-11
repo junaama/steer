@@ -3,7 +3,7 @@ import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { sessions, controls, type SessionStatus } from '@steer/schema'
+import { sessions, controls, users, authSessions, type SessionStatus } from '@steer/schema'
 import { buildServer } from './app.js'
 import { createDb, type Db } from './db.js'
 import { createSessionVerifier } from './auth-session.js'
@@ -104,6 +104,24 @@ describe('PRD 4d-i / C2: auth boundary', () => {
     const me = await app.inject({ method: 'GET', url: '/auth/me', headers: { authorization: `Bearer ${token}` } })
     expect(me.statusCode).toBe(200)
     expect(me.json().user.email).toBe('alice@steer.dev')
+  })
+
+  it('keeps accounts and auth sessions when the app image rebuild reruns migrations', async () => {
+    const token = await signup('persist@steer.dev')
+    const before = await app.inject({ method: 'GET', url: '/auth/me', headers: { authorization: `Bearer ${token}` } })
+    expect(before.statusCode).toBe(200)
+    const userId = before.json().user.id as string
+
+    await migrate(db, { migrationsFolder: './drizzle' })
+
+    const persistedUsers = await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId))
+    const persistedAuthSessions = await db.select({ id: authSessions.id }).from(authSessions).where(eq(authSessions.userId, userId))
+    expect(persistedUsers).toEqual([{ id: userId, email: 'persist@steer.dev' }])
+    expect(persistedAuthSessions).toHaveLength(1)
+
+    const after = await app.inject({ method: 'GET', url: '/auth/me', headers: { authorization: `Bearer ${token}` } })
+    expect(after.statusCode).toBe(200)
+    expect(after.json().user.email).toBe('persist@steer.dev')
   })
 })
 
