@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { sessions } from '@steer/schema'
 import type { Db } from './db.js'
 import './types.js'
@@ -42,11 +42,12 @@ export function registerProxy(
     } else {
       const sessionId = query.session_id
       if (!sessionId) return reply.code(400).send({ error: 'session_id required' })
-      const owns = await opts.db
-        .select({ id: sessions.id })
+      const found = await opts.db
+        .select({ userId: sessions.userId })
         .from(sessions)
-        .where(and(eq(sessions.id, sessionId), eq(sessions.userId, req.userId)))
-      if (owns.length === 0) return reply.code(403).send({ error: 'forbidden' })
+        .where(eq(sessions.id, sessionId))
+        .limit(1)
+      if (found[0] && found[0].userId !== req.userId) return reply.code(403).send({ error: 'forbidden' })
       where = `session_id = ${sqlLiteral(sessionId)}`
     }
 

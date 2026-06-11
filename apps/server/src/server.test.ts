@@ -316,6 +316,13 @@ describe('Electric proxy', () => {
     expect(shapeParam(electricCalls.at(-1) ?? '', 'where')).toBe("session_id = 's1'")
   })
 
+  it('allows an empty events shape while an optimistic session insert is reconciling', async () => {
+    const r = await app.inject({ method: 'GET', url: '/sync/events?session_id=s-new', headers: auth('tokenA') })
+    expect(r.statusCode).toBe(200)
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('events')
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'where')).toBe("session_id = 's-new'")
+  })
+
   it('404s an unknown collection and 400s events without a session_id', async () => {
     expect((await app.inject({ method: 'GET', url: '/sync/widgets', headers: auth('tokenA') })).statusCode).toBe(404)
     expect((await app.inject({ method: 'GET', url: '/sync/events', headers: auth('tokenA') })).statusCode).toBe(400)
@@ -323,10 +330,19 @@ describe('Electric proxy', () => {
 
   it('scopes the controls shape and passes through the offset cursor', async () => {
     await insertSession('tokenA', 's1')
+    const forbidden = await app.inject({ method: 'GET', url: '/sync/controls?session_id=s1', headers: auth('tokenB') })
+    expect(forbidden.statusCode).toBe(403)
     const r = await app.inject({ method: 'GET', url: '/sync/controls?session_id=s1&offset=42', headers: auth('tokenA') })
     expect(r.statusCode).toBe(200)
     expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('controls')
     expect(shapeParam(electricCalls.at(-1) ?? '', 'offset')).toBe('42')
+  })
+
+  it('allows an empty controls shape while an optimistic session insert is reconciling', async () => {
+    const r = await app.inject({ method: 'GET', url: '/sync/controls?session_id=s-new', headers: auth('tokenA') })
+    expect(r.statusCode).toBe(200)
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'table')).toBe('controls')
+    expect(shapeParam(electricCalls.at(-1) ?? '', 'where')).toBe("session_id = 's-new'")
   })
 
   it('proxies the environments shape with WHERE 1 = 1 and Vary: Authorization', async () => {
