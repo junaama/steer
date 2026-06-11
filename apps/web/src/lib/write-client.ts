@@ -1,4 +1,4 @@
-import type { ControlType, SessionStatus, ImageAttachment } from '@steer/schema'
+import type { ControlType, ImageAttachment } from '@steer/schema'
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -43,6 +43,13 @@ export function createWriteClient(opts: { serverUrl: string; fetchImpl: FetchLik
     return body.txid
   }
 
+  async function continueSession(sessionId: string): Promise<string> {
+    const res = await opts.fetchImpl(`${opts.serverUrl}/sessions/${sessionId}/continue`, { method: 'POST' })
+    if (!res.ok) throw new Error(`continueSession failed: ${res.status}`)
+    const body = (await res.json()) as WriteResponse
+    return body.txid
+  }
+
   return {
     createSession: (s: {
       id: string
@@ -56,11 +63,11 @@ export function createWriteClient(opts: { serverUrl: string; fetchImpl: FetchLik
       image?: ImageAttachment
     }) => write('sessions', 'insert', s),
     renameSession: (id: string, title: string) => write('sessions', 'update', { id, title }),
-    setStatus: (id: string, lastStatus: SessionStatus) => write('sessions', 'update', { id, lastStatus }),
     deleteSession: (id: string) => write('sessions', 'delete', { id }),
     sendControl: (sessionId: string, type: ControlType, payload: Record<string, unknown>) =>
       write('controls', 'insert', { sessionId, type, payload }),
     sendMessage,
+    continueSession,
   }
 }
 

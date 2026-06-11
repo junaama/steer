@@ -7,9 +7,9 @@ import { sessions, events } from '@steer/schema'
 import { buildServer } from './app.js'
 import { createDb, type Db } from './db.js'
 import { createSessionVerifier } from './auth-session.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 let pool: pg.Pool
 let db: Db
@@ -43,6 +43,7 @@ function sendMessage(token: string | null, id: string, text: unknown) {
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)
@@ -62,12 +63,7 @@ describe('POST /sessions/:id/message — follow-up turns', () => {
   it('appends a user_message event and re-queues the session (status=starting)', async () => {
     const token = await signup('a@steer.dev')
     await createSession(token, 's1')
-    await app.inject({
-      method: 'POST',
-      url: '/writes',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { collection: 'sessions', op: 'update', payload: { id: 's1', lastStatus: 'completed' } },
-    })
+    await db.update(sessions).set({ lastStatus: 'completed' }).where(eq(sessions.id, 's1'))
 
     const res = await sendMessage(token, 's1', 'now add tests')
     expect(res.statusCode).toBe(200)

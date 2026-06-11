@@ -12,9 +12,9 @@ import {
   invalidateSession,
   createSessionVerifier,
 } from './auth-session.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const USER_ID = 'user-1'
@@ -31,6 +31,7 @@ async function expiresAt(token: string): Promise<Date> {
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)

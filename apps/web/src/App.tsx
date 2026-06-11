@@ -275,7 +275,7 @@ function DetailPane({ session, deps, write }: { session: SessionView; deps: Deps
       items={items}
       plan={plan}
       onInterrupt={() => void write.sendControl(session.id, 'interrupt', {})}
-      onContinue={() => void write.setStatus(session.id, 'starting')}
+      onContinue={() => void write.continueSession(session.id)}
       onSendMessage={handleSendMessage}
       pendingQuestion={session.lastStatus === 'awaiting-input' ? question : null}
       onAnswer={handleSendMessage}

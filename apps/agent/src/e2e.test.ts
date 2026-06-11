@@ -11,9 +11,9 @@ import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore, type StoredEvent } from './store.js'
 import { runSession, FakeStreamingModel, type ScriptedTurn } from './loop.js'
 import { tools } from './tools/index.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 let pool: pg.Pool
@@ -52,6 +52,7 @@ function payloadFor<T extends Record<string, unknown>>(events: StoredEvent[], ty
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)

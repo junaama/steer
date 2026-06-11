@@ -24,14 +24,12 @@ describe('createWriteClient', () => {
     const fetchImpl = okFetch()
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
     await client.renameSession('s1', 'New title')
-    await client.setStatus('s1', 'starting')
     await client.deleteSession('s1')
     await client.sendControl('s1', 'interrupt', {})
     const bodies = fetchImpl.mock.calls.map((c) => JSON.parse(c[1]!.body as string))
     expect(bodies[0]).toEqual({ collection: 'sessions', op: 'update', payload: { id: 's1', title: 'New title' } })
-    expect(bodies[1]).toEqual({ collection: 'sessions', op: 'update', payload: { id: 's1', lastStatus: 'starting' } })
-    expect(bodies[2]).toEqual({ collection: 'sessions', op: 'delete', payload: { id: 's1' } })
-    expect(bodies[3]).toEqual({ collection: 'controls', op: 'insert', payload: { sessionId: 's1', type: 'interrupt', payload: {} } })
+    expect(bodies[1]).toEqual({ collection: 'sessions', op: 'delete', payload: { id: 's1' } })
+    expect(bodies[2]).toEqual({ collection: 'controls', op: 'insert', payload: { sessionId: 's1', type: 'interrupt', payload: {} } })
   })
 
   it('includes environment and workdir in createSession when provided', async () => {
@@ -91,5 +89,16 @@ describe('createWriteClient', () => {
     const fetchImpl = vi.fn(async () => new Response('forbidden', { status: 403 }))
     const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
     await expect(client.sendMessage('sess-42', 'hello')).rejects.toThrow(/403/)
+  })
+
+  it('continueSession POSTs to /sessions/:id/continue and returns txid', async () => {
+    const fetchImpl = okFetch('56')
+    const client = createWriteClient({ serverUrl: 'http://s', fetchImpl })
+    const txid = await client.continueSession('sess-42')
+    expect(txid).toBe('56')
+    const [url, init] = fetchImpl.mock.calls[0]!
+    expect(url).toBe('http://s/sessions/sess-42/continue')
+    expect(init!.method).toBe('POST')
+    expect(init!.body).toBeUndefined()
   })
 })

@@ -5,7 +5,7 @@ WORKDIR /app
 # Whole workspace context (see .dockerignore for exclusions) so pnpm can
 # resolve workspace packages; the filter keeps only what the server needs.
 COPY . .
-RUN pnpm install --filter @steer/server...
+RUN pnpm install --frozen-lockfile --filter @steer/server...
 
 # One-shot migration container.
 FROM base AS migrate

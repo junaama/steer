@@ -1,6 +1,5 @@
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises'
 import { relative, join } from 'node:path'
-import { spawn } from 'node:child_process'
 import { READ_ONLY_TOOLS, validateToolArgs } from '@steer/schema'
 import { createLspClient } from '../lsp.js'
 import { runSubagent, type SubagentDriverFactory } from '../subagent.js'
@@ -15,7 +14,7 @@ import {
   makeReferencesTool,
   makeRenameSymbolTool,
 } from './lsp.js'
-import { run_command } from './run.js'
+import { run_command, runShellCommand } from './run.js'
 import { git_diff } from './git_diff.js'
 import { safeJoin } from './paths.js'
 
@@ -195,14 +194,14 @@ export const write_file: ToolFn = async (args, ctx) => {
 }
 
 export const bash: ToolFn = (args, ctx) =>
-  new Promise<string>((resolvePromise, reject) => {
+  Promise.resolve().then(() => {
     const { command } = validateToolArgs('bash', args) as { command: string }
-    const child = spawn('sh', ['-c', command], { cwd: ctx.workspaceRoot, signal: ctx.signal })
-    let out = ''
-    child.stdout.on('data', (d: Buffer) => (out += d.toString()))
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()))
-    child.on('error', (err) => reject(err))
-    child.on('close', (code) => resolvePromise(out + (code === 0 ? '' : `\n[exit ${code}]`)))
+    return runShellCommand({
+      command,
+      cwd: ctx.workspaceRoot,
+      signal: ctx.signal,
+      appendExitCode: 'nonzero',
+    })
   })
 
 const lsp = createLspClient()

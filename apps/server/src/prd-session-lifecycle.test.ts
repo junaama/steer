@@ -3,10 +3,11 @@ import pg from 'pg'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { sessions, controls } from '@steer/schema'
+import { sessions, controls, type SessionStatus } from '@steer/schema'
 import { buildServer } from './app.js'
 import { createDb, type Db } from './db.js'
 import { createSessionVerifier } from './auth-session.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
 /**
  * PRD behavioral acceptance — the session-management API and the auth boundary,
@@ -17,8 +18,7 @@ import { createSessionVerifier } from './auth-session.js'
  * interrupt, continue, rename, delete), C2 (request authorization & per-user
  * isolation).
  */
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 let pool: pg.Pool
 let db: Db
@@ -46,7 +46,7 @@ async function signup(email: string, password = 'password123'): Promise<string> 
 
 function writeAs(
   token: string | null,
-  collection: 'sessions' | 'controls' | 'events',
+  collection: 'sessions' | 'controls',
   op: 'insert' | 'update' | 'delete',
   payload: Record<string, unknown>,
 ) {
@@ -58,11 +58,24 @@ function writeAs(
   })
 }
 
+function continueAs(token: string | null, id: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/sessions/${id}/continue`,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  })
+}
+
+async function setSessionStatus(id: string, lastStatus: SessionStatus) {
+  await db.update(sessions).set({ lastStatus }).where(eq(sessions.id, id))
+}
+
 function whereParam(call: string): string {
   return new URL(call).searchParams.get('where') ?? ''
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)
@@ -181,13 +194,22 @@ describe('PRD 4d-v: rename / update a session', () => {
     const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
     expect(row!.title).toBe('renamed')
   })
+
+  it('rejects client-owned status updates so the audit lifecycle stays server/agent-owned', async () => {
+    const token = await signup('a@steer.dev')
+    await writeAs(token, 'sessions', 'insert', { id: 's1', title: 'old' })
+    const res = await writeAs(token, 'sessions', 'update', { id: 's1', lastStatus: 'completed' })
+    expect(res.statusCode).toBe(400)
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.lastStatus).toBe('starting')
+  })
 })
 
 describe('PRD 4d-iv: interrupt & continue', () => {
   it('interrupts via a control row (control-plane-via-data-plane)', async () => {
     const token = await signup('a@steer.dev')
     await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't' })
-    await writeAs(token, 'sessions', 'update', { id: 's1', lastStatus: 'running' })
+    await setSessionStatus('s1', 'running')
     const res = await writeAs(token, 'controls', 'insert', { sessionId: 's1', type: 'interrupt', payload: {} })
     expect(res.statusCode).toBe(200)
     const rows = await db.select().from(controls).where(eq(controls.sessionId, 's1'))
@@ -195,13 +217,38 @@ describe('PRD 4d-iv: interrupt & continue', () => {
     expect(rows[0]!.type).toBe('interrupt')
   })
 
-  it('continues an interrupted session by flipping it back to starting', async () => {
+  it('continues an interrupted session through the dedicated lifecycle endpoint', async () => {
     const token = await signup('a@steer.dev')
     await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't' })
-    await writeAs(token, 'sessions', 'update', { id: 's1', lastStatus: 'interrupted' })
-    await writeAs(token, 'sessions', 'update', { id: 's1', lastStatus: 'starting' })
+    await setSessionStatus('s1', 'interrupted')
+    const res = await continueAs(token, 's1')
+    expect(res.statusCode).toBe(200)
+    expect(String(res.json().txid)).toMatch(/^\d+$/)
     const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
     expect(row!.lastStatus).toBe('starting') // the daemon re-picks it up
+  })
+
+  it("forbids continuing another user's session", async () => {
+    const a = await signup('a@steer.dev')
+    const b = await signup('b@steer.dev')
+    await writeAs(a, 'sessions', 'insert', { id: 's1', title: 't' })
+    await setSessionStatus('s1', 'interrupted')
+
+    const res = await continueAs(b, 's1')
+    expect(res.statusCode).toBe(403)
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.lastStatus).toBe('interrupted')
+  })
+
+  it('rejects continue when the session is not interrupted', async () => {
+    const token = await signup('a@steer.dev')
+    await writeAs(token, 'sessions', 'insert', { id: 's1', title: 't' })
+    await setSessionStatus('s1', 'completed')
+
+    const res = await continueAs(token, 's1')
+    expect(res.statusCode).toBe(409)
+    const [row] = await db.select().from(sessions).where(eq(sessions.id, 's1'))
+    expect(row!.lastStatus).toBe('completed')
   })
 })
 

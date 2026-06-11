@@ -6,9 +6,9 @@ import { MAX_IMAGE_BASE64_BYTES } from '@steer/schema'
 import { buildServer } from './app.js'
 import { createDb } from './db.js'
 import type { AuthVerifier } from './auth.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 const verifier: AuthVerifier = {
   verify: async (token) => {
@@ -51,6 +51,7 @@ async function insertSession(token: string, id: string, title = 'Session'): Prom
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   const db = createDb(pool)
@@ -129,11 +130,11 @@ describe('POST /writes', () => {
       method: 'POST',
       url: '/writes',
       headers: auth('tokenA'),
-      payload: { collection: 'sessions', op: 'update', payload: { id: 's1', title: 'Renamed', lastStatus: 'running', model: 'opus' } },
+      payload: { collection: 'sessions', op: 'update', payload: { id: 's1', title: 'Renamed', model: 'opus' } },
     })
     expect(upd.statusCode).toBe(200)
     const row = await pool.query('select title, last_status, model from sessions where id=$1', ['s1'])
-    expect(row.rows[0]).toMatchObject({ title: 'Renamed', last_status: 'running', model: 'opus' })
+    expect(row.rows[0]).toMatchObject({ title: 'Renamed', last_status: 'starting', model: 'opus' })
 
     const del = await app.inject({
       method: 'POST',
@@ -171,26 +172,36 @@ describe('POST /writes', () => {
     expect(ok.statusCode).toBe(200)
   })
 
-  it('accepts an event insert and rejects event update / control update', async () => {
+  it('rejects client-owned status changes and event writes', async () => {
     await insertSession('tokenA', 's1')
-    const ins = await app.inject({
+    const status = await app.inject({
+      method: 'POST',
+      url: '/writes',
+      headers: auth('tokenA'),
+      payload: {
+        collection: 'sessions',
+        op: 'update',
+        payload: { id: 's1', lastStatus: 'completed' },
+      },
+    })
+    expect(status.statusCode).toBe(400)
+    const persisted = await pool.query('select last_status from sessions where id=$1', ['s1'])
+    expect(persisted.rows[0].last_status).toBe('starting')
+
+    const eventInsert = await app.inject({
       method: 'POST',
       url: '/writes',
       headers: auth('tokenA'),
       payload: {
         collection: 'events',
         op: 'insert',
-        payload: { sessionId: 's1', seq: 0, type: 'message', payload: { text: 'hi' } },
+        payload: { sessionId: 's1', seq: 0, type: 'message', payload: { text: 'forged' } },
       },
     })
-    expect(ins.statusCode).toBe(200)
-    const evUpd = await app.inject({
-      method: 'POST',
-      url: '/writes',
-      headers: auth('tokenA'),
-      payload: { collection: 'events', op: 'update', payload: { sessionId: 's1', seq: 0, type: 'message', payload: {} } },
-    })
-    expect(evUpd.statusCode).toBe(400)
+    expect(eventInsert.statusCode).toBe(400)
+    const events = await pool.query('select 1 from events where session_id=$1', ['s1'])
+    expect(events.rowCount).toBe(0)
+
     const ctlUpd = await app.inject({
       method: 'POST',
       url: '/writes',

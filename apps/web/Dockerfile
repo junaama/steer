@@ -3,7 +3,7 @@ FROM node:22-alpine AS base
 RUN corepack enable
 WORKDIR /app
 COPY . .
-RUN pnpm install --filter @steer/web...
+RUN pnpm install --frozen-lockfile --filter @steer/web...
 
 # Vite inlines VITE_* at build time, so they must be present as build args
 # (the compose `environment:` block is runtime-only).

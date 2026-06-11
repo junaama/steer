@@ -4,8 +4,8 @@ name: steer
 # Steer — full stack. `docker compose up --build` from a clean
 # clone (after copying .env.example → .env) brings everything up.
 #
-# Exposed to the host: web (5173), server (8080), postgres (54321).
-# NOT exposed: electric (internal), agent (PORTLESS, outbound only).
+# Exposed to the host: web (${WEB_PORT:-5173}), server (${SERVER_PORT:-8080}), postgres (54321).
+# NOT exposed: electric (behind server proxy), agent (PORTLESS, outbound only).
 # ============================================================
 
 services:
@@ -28,7 +28,7 @@ services:
       - "54321:5432"
 
   electric:
-    image: electricsql/electric:latest
+    image: electricsql/electric@sha256:135412d5f0ec41b7c0a3d4edb450d83d09daec278a1b75991b1153950e154828
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://steer:steer@postgres:5432/steer?sslmode=disable}
       # Dev only: Electric sits behind the server's auth proxy and is never
@@ -42,13 +42,8 @@ services:
       interval: 3s
       timeout: 5s
       retries: 20
-    # Published to the host so an EXTERNAL run-anywhere daemon (`./steer-agent
-    # --env <id>` on this machine) can subscribe to the sessions shape directly —
-    # the server still proxies to it over the compose network too. Dev only:
-    # Electric runs with ELECTRIC_INSECURE here; production keeps it unpublished
-    # behind the server's auth proxy and swaps in ELECTRIC_SECRET.
-    ports:
-      - "3000:3000"
+    # Kept internal in the reviewer stack. The server is the auth proxy; the dev
+    # override publishes Electric on 127.0.0.1 for a host-run daemon.
 
   # One-shot: runs DB migrations, then exits 0 before the app boots.
   migrate:
@@ -85,7 +80,7 @@ services:
       timeout: 5s
       retries: 20
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:8080"
 
   web:
     build:
@@ -127,17 +122,15 @@ services:
       # See README → "Run it anywhere".
       STEER_ENV: ${STEER_ENV:-}
       STEER_MCP_SERVERS: ${STEER_MCP_SERVERS:-}
-      # The daemon's ROOT (sandbox boundary) = the dir mounted below, at the SAME
-      # path inside and out so the CLI's cwd needs no translation. Defaults to your
-      # home dir, which Docker Desktop already shares (under /Users) and Linux can
-      # mount freely — so `docker compose up` reaches your real projects with NO
-      # host config (the PRD's hard requirement). Narrow or widen with WORKSPACE_DIR.
-      STEER_WORKSPACE_ROOT: ${WORKSPACE_DIR:-${HOME}}
+      # The default daemon runs in its own container workspace. Mount real host
+      # files only when opting in with WORKSPACE_DIR=/absolute/project/path.
+      STEER_WORKSPACE_ROOT: ${WORKSPACE_DIR:-/workspace}
       STEER_MAX_STEPS: ${STEER_MAX_STEPS:-80}
-    # Mount the workspace at the same path host↔container (no path translation).
-    # Default = $HOME; override to a single project:  WORKSPACE_DIR=~/dev/my-app
+    # Default = Docker-managed workspace volume. With WORKSPACE_DIR set, the
+    # host path is mounted at the same path in the container so CLI cwd routing
+    # needs no translation.
     volumes:
-      - ${WORKSPACE_DIR:-${HOME}}:${WORKSPACE_DIR:-${HOME}}
+      - ${WORKSPACE_DIR:-agent-workspace}:${WORKSPACE_DIR:-/workspace}
     depends_on:
       server:
         condition: service_healthy
@@ -146,3 +139,4 @@ services:
 
 volumes:
   pgdata:
+  agent-workspace:

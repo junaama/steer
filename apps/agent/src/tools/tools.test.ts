@@ -19,6 +19,7 @@ import {
   run_command,
 } from './index.js'
 import { applyEdits } from './edit.js'
+import { runShellCommand } from './run.js'
 import { TOOL_DESCRIPTIONS } from '@steer/schema'
 
 let root: string
@@ -337,6 +338,11 @@ describe('bash', () => {
   it('appends a non-zero exit marker', async () => {
     expect(await bash({ command: 'exit 3' }, ctx())).toContain('[exit 3]')
   })
+  it('truncates very large output with a marker', async () => {
+    const out = await bash({ command: 'node -e "process.stdout.write(\'x\'.repeat(20000))"' }, ctx())
+    expect(out).toContain('[truncated')
+    expect(out.length).toBeLessThan(20000)
+  })
 })
 
 describe('run_command', () => {
@@ -385,5 +391,18 @@ describe('run_command', () => {
     )
     expect(out).toContain('[truncated')
     expect(out).toMatch(/\[exit 0\]$/)
+  })
+})
+
+describe('runShellCommand', () => {
+  it('uses a default timeout when the caller does not pass timeoutMs', async () => {
+    const out = await runShellCommand({
+      command: 'node -e "setTimeout(() => {}, 1000)"',
+      cwd: root,
+      defaultTimeoutMs: 20,
+      appendExitCode: 'always',
+    })
+    expect(out).toContain('[timeout after 20ms]')
+    expect(out).toMatch(/\[exit 1\]$/)
   })
 })

@@ -7,6 +7,7 @@ import { sessions, type SessionStatus } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { createDbStore, type AgentStore } from './store.js'
 import { runnableFromMessages } from './intake.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
 /**
  * Run-anywhere end-to-end (U8): proves session→environment routing + single-owner
@@ -20,8 +21,7 @@ import { runnableFromMessages } from './intake.js'
  * gate that turns a won claim into a run is unit-tested in daemon.test.ts.
  */
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 let pool: pg.Pool
 let db: Db
@@ -59,6 +59,7 @@ async function intake(env: string | null, owner: string): Promise<string[]> {
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)

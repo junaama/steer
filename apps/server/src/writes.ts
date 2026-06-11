@@ -4,12 +4,8 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   sessions,
-  events,
   controls,
-  sessionStatusSchema,
-  eventTypeSchema,
   controlTypeSchema,
-  parseEventPayload,
   parseControlPayload,
   imageAttachmentSchema,
 } from '@steer/schema'
@@ -18,7 +14,7 @@ import { type Tx, WriteError, assertOwns, captureTxid } from './session-tx.js'
 import './types.js'
 
 const bodySchema = z.object({
-  collection: z.enum(['sessions', 'events', 'controls']),
+  collection: z.enum(['sessions', 'controls']),
   op: z.enum(['insert', 'update', 'delete']),
   payload: z.record(z.unknown()),
 })
@@ -26,7 +22,7 @@ const bodySchema = z.object({
 async function applyWrite(
   tx: Tx,
   userId: string,
-  collection: 'sessions' | 'events' | 'controls',
+  collection: 'sessions' | 'controls',
   op: 'insert' | 'update' | 'delete',
   payload: Record<string, unknown>,
 ): Promise<void> {
@@ -72,16 +68,15 @@ async function applyWrite(
         .object({
           id: z.string().min(1),
           title: z.string().min(1).optional(),
-          lastStatus: sessionStatusSchema.optional(),
           model: z.string().optional(),
         })
+        .strict()
         .parse(payload)
       await assertOwns(tx, userId, p.id)
       await tx
         .update(sessions)
         .set({
           ...(p.title !== undefined ? { title: p.title } : {}),
-          ...(p.lastStatus !== undefined ? { lastStatus: p.lastStatus } : {}),
           ...(p.model !== undefined ? { model: p.model } : {}),
           updatedAt: new Date(),
         })
@@ -112,20 +107,6 @@ async function applyWrite(
       .values({ id: p.id ?? randomUUID(), sessionId: p.sessionId, type: p.type, payload: validated })
     return
   }
-
-  // events (append-only)
-  if (op !== 'insert') throw new WriteError(400, 'events are append-only')
-  const p = z
-    .object({
-      sessionId: z.string().min(1),
-      seq: z.number().int().nonnegative(),
-      type: eventTypeSchema,
-      payload: z.record(z.unknown()),
-    })
-    .parse(payload)
-  await assertOwns(tx, userId, p.sessionId)
-  const validated = parseEventPayload(p.type, p.payload)
-  await tx.insert(events).values({ sessionId: p.sessionId, seq: p.seq, type: p.type, payload: validated })
 }
 
 export function registerWrites(app: FastifyInstance, db: Db): void {

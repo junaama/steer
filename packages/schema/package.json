@@ -15,13 +15,13 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "drizzle-orm": "^0.38.3",
-    "drizzle-zod": "^0.6.1",
-    "zod": "^3.24.1"
+    "drizzle-orm": "^0.45.2",
+    "drizzle-zod": "^0.8.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "@vitest/coverage-v8": "^2.1.8"
+    "vitest": "^2.1.8"
   }
 }

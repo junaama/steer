@@ -16,6 +16,7 @@ export interface DynamicToolDefinition {
 }
 
 type JsonSchemaInput = Parameters<typeof jsonSchema<Record<string, unknown>>>[0]
+type ToolInputSchema = Parameters<typeof tool>[0]['inputSchema']
 
 function createToolSet(names?: readonly string[], dynamicTools: readonly DynamicToolDefinition[] = []): ToolSet {
   const allowed = names ? new Set(names) : null
@@ -24,7 +25,16 @@ function createToolSet(names?: readonly string[], dynamicTools: readonly Dynamic
   // execution and the per-tool approval gate.
   const staticTools = Object.entries(toolArgSchemas)
     .filter(([name]) => allowed === null || allowed.has(name))
-    .map(([name, parameters]) => [name, tool({ description: TOOL_DESCRIPTIONS[name as ToolName] ?? name, parameters })] as const)
+    .map(
+      ([name, inputSchema]) =>
+        [
+          name,
+          tool({
+            description: TOOL_DESCRIPTIONS[name as ToolName] ?? name,
+            inputSchema: inputSchema as unknown as ToolInputSchema,
+          }),
+        ] as const,
+    )
   const mcpTools = dynamicTools
     .filter((definition) => allowed === null || allowed.has(definition.name))
     .map(
@@ -33,7 +43,7 @@ function createToolSet(names?: readonly string[], dynamicTools: readonly Dynamic
           definition.name,
           tool({
             description: definition.description,
-            parameters: jsonSchema<Record<string, unknown>>(definition.inputSchema as JsonSchemaInput),
+            inputSchema: jsonSchema<Record<string, unknown>>(definition.inputSchema as JsonSchemaInput),
           }),
         ] as const,
   )
@@ -100,17 +110,17 @@ async function streamTurn(
   let reasoning = ''
   const toolCalls: ToolCall[] = []
   for await (const part of result.fullStream) {
-    if (part.type === 'reasoning') {
-      reasoning += part.textDelta
-      hooks.onReasoningDelta?.(part.textDelta)
+    if (part.type === 'reasoning-delta') {
+      reasoning += part.text
+      hooks.onReasoningDelta?.(part.text)
     } else if (part.type === 'text-delta') {
-      text += part.textDelta
-      hooks.onTextDelta?.(part.textDelta)
+      text += part.text
+      hooks.onTextDelta?.(part.text)
     } else if (part.type === 'tool-call') {
       toolCalls.push({
         toolCallId: part.toolCallId,
         name: part.toolName,
-        args: part.args as Record<string, unknown>,
+        args: part.input as Record<string, unknown>,
       })
     } else if (part.type === 'error') {
       // streamText reports a model/transport failure (rate limit, bad model id,

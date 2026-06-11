@@ -5,9 +5,9 @@ import { eq } from 'drizzle-orm'
 import { sessions, events, users } from '@steer/schema'
 import { createDb, type Db } from './db.js'
 import { seedDemo, ensureUser } from './seed-demo.js'
+import { ensureDefaultTestDatabase, testDatabaseUrl } from './test-db.js'
 
-const TEST_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://steer:steer@localhost:54321/steer?sslmode=disable'
+const TEST_URL = testDatabaseUrl()
 
 let pool: pg.Pool
 let db: Db
@@ -18,6 +18,7 @@ async function sessionCount(userId: string): Promise<number> {
 }
 
 beforeAll(async () => {
+  await ensureDefaultTestDatabase()
   pool = new pg.Pool({ connectionString: TEST_URL })
   await pool.query('DROP SCHEMA IF EXISTS drizzle CASCADE; DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')
   db = createDb(pool)
