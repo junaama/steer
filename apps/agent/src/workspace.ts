@@ -1,4 +1,5 @@
-import { resolve, relative, isAbsolute } from 'node:path'
+import { homedir } from 'node:os'
+import { resolve, relative, isAbsolute, join } from 'node:path'
 
 /**
  * The coding agent operates on the daemon host filesystem, not an isolated temp
@@ -20,9 +21,10 @@ export function resolveWorkspaceRoot(env: { STEER_WORKSPACE_ROOT?: string } = {}
  * instead. `root` stays the sandbox boundary, so a session can still reach
  * siblings under it.
  */
-export function resolveSessionWorkspace(root: string, workdir: string | null | undefined): string {
+export function resolveSessionWorkspace(root: string, workdir: string | null | undefined, home: () => string = homedir): string {
   if (!workdir) return root
-  const abs = resolve(workdir)
+  const expanded = workdir === '~' ? home() : workdir.startsWith('~/') ? join(home(), workdir.slice(2)) : workdir
+  const abs = resolve(expanded)
   const rel = relative(root, abs)
   if (rel.startsWith('..') || isAbsolute(rel)) return root
   return abs

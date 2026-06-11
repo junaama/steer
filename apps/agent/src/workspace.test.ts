@@ -26,6 +26,15 @@ describe('resolveSessionWorkspace', () => {
     expect(resolveSessionWorkspace('/home/me', '/home/me/projectA')).toBe('/home/me/projectA')
   })
 
+  it('targets a CLI-created absolute cwd on the daemon host', () => {
+    expect(resolveSessionWorkspace('/', '/Users/alice/dev/humanlayer')).toBe('/Users/alice/dev/humanlayer')
+  })
+
+  it('expands a web-selected home-relative workdir on the daemon host', () => {
+    expect(resolveSessionWorkspace('/', '~/dev/humanlayer', () => '/Users/alice')).toBe('/Users/alice/dev/humanlayer')
+    expect(resolveSessionWorkspace('/Users/alice', '~/dev/humanlayer', () => '/Users/alice')).toBe('/Users/alice/dev/humanlayer')
+  })
+
   it('falls back to the root when no workdir is given', () => {
     expect(resolveSessionWorkspace('/dev', null)).toBe('/dev')
     expect(resolveSessionWorkspace('/dev', undefined)).toBe('/dev')

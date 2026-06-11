@@ -134,6 +134,17 @@ describe('run', () => {
     expect(client.createSession.mock.calls[1]![1].workdir).toBe('/dev/projectB')
   })
 
+  it('creates a CLI session for the selected environment in the terminal cwd', async () => {
+    await saveCredentials(creds, home)
+    const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }
+    const { ctx } = harness(client, { cwd: () => '/Users/alice/dev/humanlayer' })
+    expect(await run(ctx, { prompt: 'fix', env: 'laptop' })).toBe(0)
+    expect(client.createSession.mock.calls[0]![1]).toMatchObject({
+      environment: 'laptop',
+      workdir: '/Users/alice/dev/humanlayer',
+    })
+  })
+
   it('reuses a stored default environment when --env is omitted', async () => {
     await saveCredentials({ ...creds, defaultEnv: 'laptop' }, home)
     const client = { createSession: vi.fn(async (_t: string, _i: SessionInput) => ({ txid: '1' })) }

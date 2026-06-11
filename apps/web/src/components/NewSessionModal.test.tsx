@@ -90,6 +90,21 @@ describe('NewSessionModal', () => {
     )
   })
 
+  it('creates a web session for the selected host environment and home-relative directory', () => {
+    const { props } = setup()
+    fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'work on humanlayer' } })
+    fireEvent.change(screen.getByLabelText('Environment'), { target: { value: 'laptop' } })
+    fireEvent.change(screen.getByLabelText('Working directory'), { target: { value: '~/dev/humanlayer' } })
+    fireEvent.click(screen.getByText('Start session'))
+    expect(props.onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: 'work on humanlayer',
+        environment: 'laptop',
+        workdir: '~/dev/humanlayer',
+      }),
+    )
+  })
+
   it('passes undefined environment when "Default (unrouted)" is selected', () => {
     const { props } = setup()
     fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'task' } })
